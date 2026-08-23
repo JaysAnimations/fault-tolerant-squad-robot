@@ -62,6 +62,13 @@ import config
 L_FREE, L_FENCE, L_RACK, L_VESSEL, L_EXCHANGER = 0, 1, 2, 3, 4
 L_PUMP, L_BUILDING, L_BUND, L_TANK, L_SKID = 5, 6, 7, 8, 9
 
+# Anything the drawings do not show: scaffolding, a barrier, parked
+# equipment. Deliberately given its own label so a figure can show at a
+# glance what is present in reality but absent from the plot plan. Kept out
+# of FEATURE_NAMES so it never appears in the legend of a run that has no
+# deviations in it.
+L_DEVIATION = 10
+
 FEATURE_COLOURS = {
     L_FREE:      (0.97, 0.96, 0.94),
     L_FENCE:     (0.25, 0.27, 0.30),
@@ -73,6 +80,7 @@ FEATURE_COLOURS = {
     L_BUND:      (0.55, 0.42, 0.32),
     L_TANK:      (0.20, 0.42, 0.28),
     L_SKID:      (0.52, 0.54, 0.56),
+    L_DEVIATION: (0.86, 0.15, 0.15),
 }
 
 FEATURE_NAMES = {
@@ -169,6 +177,18 @@ class Facility:
     def _build_layout(self):
         W, H = self.width_m, self.height_m
 
+        # Equipment that could plausibly be taken out for maintenance, as
+        # (x0, y0, x1, y1) footprints. deviations.py draws "removed
+        # obstacle" deviations from this list.
+        #
+        # WHAT IS NOT ON IT, AND WHY: storage tanks, process vessels, the
+        # pipe rack columns, the bund and the buildings. Those are civil or
+        # structural items -- nobody removes a 6 m storage tank between two
+        # revisions of a drawing. Skids, pumps, exchangers and packages come
+        # out on a routine turnaround, which is exactly why an as-built
+        # drawing goes stale.
+        self.features["removable"] = []
+
         # --- perimeter fence -----------------------------------------
         t = 0.4
         self._rect(0, 0, W, t, label=L_FENCE)
@@ -218,6 +238,7 @@ class Facility:
 
         for (x0, y0) in [(17.0, 36.0), (23.0, 36.0), (29.0, 36.0)]:
             self._rect(x0, y0, x0 + 4.0, y0 + 2.2, label=L_EXCHANGER)
+            self.features["removable"].append((x0, y0, x0 + 4.0, y0 + 2.2))
 
         # Pump row at the outer limit of the process area -- a second
         # sequence of identical objects.
@@ -225,6 +246,7 @@ class Facility:
         for x in np.arange(17.0, 39.0, 3.0):
             self._rect(x - 0.5, 31.5, x + 0.5, 32.5, label=L_PUMP)
             self.features["pump_row"].append((x, 32.0))
+            self.features["removable"].append((x - 0.5, 31.5, x + 0.5, 32.5))
 
         # --- COMPRESSOR HOUSE (north-east block) ---------------------
         self._hollow_box(45.0, 33.0, 70.0, 46.0)
@@ -232,6 +254,8 @@ class Facility:
         self._rect(45.0, 38.5, 45.4, 41.0, 0)          # west door
         self._rect(50.0, 36.0, 56.0, 39.0, label=L_SKID)   # compressor skid A
         self._rect(60.0, 36.0, 66.0, 39.0, label=L_SKID)   # compressor skid B
+        self.features["removable"] += [(50.0, 36.0, 56.0, 39.0),
+                                       (60.0, 36.0, 66.0, 39.0)]
         self.features["compressor_house"] = (45.0, 33.0, 70.0, 46.0)
 
         # --- TANK FARM (south-east block, inside a bund) -------------
@@ -250,9 +274,12 @@ class Facility:
         # --- UTILITY AREA (south-west block) -------------------------
         for (x0, y0) in [(9.0, 9.0), (15.5, 9.0), (22.0, 9.0)]:
             self._rect(x0, y0, x0 + 4.5, y0 + 3.0, label=L_SKID)
+            self.features["removable"].append((x0, y0, x0 + 4.5, y0 + 3.0))
 
         self._rect(9.0, 15.5, 14.0, 18.5, label=L_SKID)   # air compressor package
         self._rect(18.0, 15.5, 23.0, 18.5, label=L_SKID)  # cooling water skid
+        self.features["removable"] += [(9.0, 15.5, 14.0, 18.5),
+                                       (18.0, 15.5, 23.0, 18.5)]
 
         # Electrical substation -- enclosed, one door
         self._hollow_box(29.0, 8.5, 38.0, 15.0)
@@ -261,6 +288,46 @@ class Facility:
 
         # Firewater pumphouse
         self._rect(29.0, 18.0, 35.0, 21.5, label=L_SKID)
+        self.features["removable"].append((29.0, 18.0, 35.0, 21.5))
+
+        # --- THE DRAWINGS, AS ISSUED ---------------------------------
+        # Everything above this line is the facility's DOCUMENTED layout:
+        # the plot plan the operator hands the robots at the start of a
+        # mission. deviations.py then edits self.grid to add scaffolding,
+        # remove equipment and close aisles -- changes the drawings do not
+        # show. Keeping a copy here is what lets us ask the two questions
+        # the whole design turns on: what did the drawings say, and what is
+        # actually there?
+        self.documented_grid = self.grid.copy()
+        self.documented_labels = self.labels.copy()
+
+    # =================================================================
+    # Deviations: editing GROUND TRUTH after the drawings were issued
+    # =================================================================
+    def region_bounds(self, x0, y0, x1, y1):
+        """Clipped grid slice [r0:r1, c0:c1] covered by a world rectangle."""
+        r0, c0 = self.world_to_grid(x0, y0)
+        r1, c1 = self.world_to_grid(x1, y1)
+        r0, r1 = max(0, min(r0, r1)), min(self.n_rows, max(r0, r1))
+        c0, c1 = max(0, min(c0, c1)), min(self.n_cols, max(c0, c1))
+        return int(r0), int(r1), int(c0), int(c1)
+
+    def set_region(self, x0, y0, x1, y1, occupied, label=None):
+        """
+        Add or remove an obstacle in GROUND TRUTH ONLY.
+
+        self.documented_grid is not touched, so after this call the drawings
+        and reality disagree -- which is the entire point of Design Change
+        01. The robots are issued the drawings and must discover the rest.
+
+        Returns the grid slice that changed.
+        """
+        self._rect(x0, y0, x1, y1, 1 if occupied else 0, label=label)
+        # The observable surface just changed, so the cached boundary mask
+        # is stale. Forgetting this would score every map against the
+        # surfaces of a facility that no longer exists.
+        self._boundary = None
+        return self.region_bounds(x0, y0, x1, y1)
 
     # =================================================================
     # Metrics support

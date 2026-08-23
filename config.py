@@ -113,3 +113,245 @@ LOG_ODDS_FREE_THRESHOLD = -1.0 # below this we call a cell "free"
 # byte-identical results every time you run it. Panels ask about this.
 
 DEFAULT_SEED = 42
+
+
+# =====================================================================
+# 7. FRONTIER EXPLORATION  (Step 1b)
+# =====================================================================
+# A frontier is known-free space touching unknown space -- the only place
+# new information can come from. The robot drives to frontiers until none
+# remain, at which point every reachable area has been seen.
+
+FRONTIER_MIN_SIZE_CELLS = 3      # ignore smaller regions: usually edge noise
+FRONTIER_UNKNOWN_FRACTION = 0.5  # coarse cell counts as unknown above this
+FRONTIER_REACHED_M = 1.5         # close enough to consider a frontier visited
+
+# Selection rule:  score = size - FRONTIER_DISTANCE_WEIGHT * distance
+#   weight -> 0    : always chase the largest frontier, wherever it is
+#   weight -> large: always take the nearest, however small
+# Since this project reports energy per m2, the rule must trade information
+# against travel rather than optimise either alone.
+# TUNED EMPIRICALLY. Full-mission sweep on seed 42 (weight / min-travel /
+# min-commit -> coverage, collisions, energy per m2):
+#     0.15 / 10 /  60  ->  93.1 %, 915 collisions, 5.88 J/m2
+#     0.15 / 12 / 250  ->  94.9 %,  54 collisions, 7.63 J/m2   <-- chosen
+#     0.30 / 16 / 250  ->  91.4 %,   0 collisions, 8.07 J/m2
+#     0.80 / 12 / 200  ->  69.8 %, 336 collisions, 3.95 J/m2
+#     1.50 / 12 / 200  ->  55.7 %,   0 collisions, 9.58 J/m2
+#
+# The pattern is a genuine trade-off worth reporting in Chapter 4: a strong
+# locality preference finishes the local area cheaply but declares
+# exploration complete while unreachable frontiers remain, so coverage
+# collapses. A weak preference covers the site but wanders. We optimise for
+# coverage, since an incomplete industrial map is worthless regardless of
+# how little energy it cost to produce.
+FRONTIER_DISTANCE_WEIGHT = 0.15
+
+FRONTIER_MIN_COMMIT_STEPS = 250  # hold a chosen frontier at least this long
+                                 # 60 caused 915 collisions; 250 gives 54
+FRONTIER_CHECK_EVERY = 5         # steps between goal-validity checks
+FRONTIER_MIN_TRAVEL_CELLS = 12   # 4.8 m: closer frontiers are consumed by looking
+
+
+# =====================================================================
+# 8. RANDOM NUMBER STREAMS  (Design Change 01)
+# =====================================================================
+# A run has ONE seed, but several things draw from it: where the
+# inspection points go, which deviations are injected, and the sensor and
+# odometry noise the robot experiences.
+#
+# If they all shared one generator, switching condition C0 (no deviations)
+# to C1 (deviations) would consume a different number of draws and shift
+# every later random number -- so the two conditions would no longer be
+# the same mission, and the paired comparison the experiment depends on
+# would be broken.
+#
+# Each purpose therefore gets its own independent stream, derived from the
+# run seed as default_rng([seed, STREAM_ID]). Seed 7 gives the same
+# inspection points in every condition whether deviations are injected or
+# not, which is exactly what decision 14 in the work log requires.
+RNG_STREAM_ROBOT = 0        # sensor noise, odometry drift
+RNG_STREAM_INSPECTION = 1   # inspection point positions
+RNG_STREAM_DEVIATIONS = 2   # which deviations, and where
+
+
+# =====================================================================
+# 9. MISSION: ZONES AND INSPECTION POINTS  (Design Change 01)
+# =====================================================================
+# The mission is no longer "cover as much area as possible" but "visit
+# every inspection point". Points are stratified over 11 functional zones
+# so that no seed can produce a mission where every point sits in one
+# corner of the site.
+#
+# Each zone is an axis-aligned rectangle (x0, y0, x1, y1) in metres. The
+# rectangles are deliberately DISJOINT, so a point belongs to exactly one
+# zone, and each is drawn around a functional area of the layout in
+# environment.py. They are allowed to contain obstacles -- point placement
+# rejects any position that is not free, so a zone rectangle is a region to
+# sample from, not a claim that the whole rectangle is drivable.
+ZONES = [
+    # code, name,                          x0,    y0,    x1,    y1
+    ("Z1",  "Perimeter road, south",       0.4,   0.4,  79.6,   6.2),
+    ("Z2",  "Perimeter road, north",       0.4,  52.6,  79.6,  54.6),
+    ("Z3",  "Utility area",                6.4,   6.4,  28.0,  22.5),
+    ("Z4",  "Substation interior",        29.4,   8.9,  37.6,  14.6),
+    ("Z5",  "Tank farm (inside bund)",    43.5,   7.0,  72.5,  20.5),
+    ("Z6",  "Main pipe rack corridor",     6.4,  22.6,  76.0,  28.5),
+    ("Z7",  "Process unit",               15.0,  34.6,  42.0,  47.5),
+    ("Z8",  "Pump row",                   15.0,  28.8,  42.0,  34.5),
+    ("Z9",  "Compressor house interior",  45.4,  33.4,  69.6,  45.6),
+    ("Z10", "Control building interior",   7.4,  32.4,  13.1,  39.6),
+    ("Z11", "Store / workshop interior",   7.4,  45.4,  18.6,  52.1),
+]
+
+INSPECTION_POINTS_TARGET = 40     # total points per run, every run
+INSPECTION_MIN_PER_ZONE = 2       # stratification: no zone may be ignored
+INSPECTION_MAX_PER_ZONE = 5       # and none may hoard the mission
+# 11 zones x 2..5 spans 22..55 points, so a target of 40 is always
+# satisfiable. Holding the TOTAL fixed while randomising positions is what
+# keeps mission difficulty comparable between seeds (decision 1).
+
+INSPECTION_CLEARANCE_M = 0.55     # the robot (r = 0.25 m) must be able to
+                                  # stand on the point, with margin
+
+# Obstacle inflation used when asking "can a robot physically get there?",
+# as opposed to "what route should it drive?".
+#
+# THESE ARE TWO DIFFERENT QUESTIONS AND THEY NEED DIFFERENT NUMBERS. The
+# navigation planner inflates by 2 coarse cells (0.8 m) because a path that
+# scrapes a wall produces collisions. But 0.8 m of inflation closes the
+# control building's 2.0 m doorway completely, so a reachability test using
+# it declares the whole room unreachable -- and the room is demonstrably
+# reachable, since the scripted tour in demo_single.py drives into it.
+#
+# One coarse cell is 0.4 m, comfortably more than the 0.25 m robot radius,
+# so this stays a conservative test of whether the robot fits.
+REACHABILITY_INFLATE_CELLS = 1
+INSPECTION_MIN_SEPARATION_M = 2.5  # two points 0.3 m apart are one point
+INSPECTION_PLACEMENT_ATTEMPTS = 500  # rejection sampling budget per point
+INSPECTION_REACHED_M = 0.9        # believed distance that counts as a visit
+                                  # (matches WAYPOINT_TOLERANCE_M in the
+                                  # scripted tour, so the two are comparable)
+
+# Fixed deployment point: the charging station just inside the gate. Held
+# constant across every run and every condition so start position is not a
+# nuisance variable in the comparison (decision 6 / decision 13).
+START_POSE_XY = (3.5, 3.5)
+START_THETA_RAD = 0.0
+
+# --- running the inspection mission (demo_inspect.py) -----------------
+# Same shape as the scripted tour's loop, so the two are comparable.
+INSPECTION_MAX_STEPS = 40000
+INSPECTION_SCAN_EVERY_N_STEPS = 3       # LiDAR at ~3 Hz, control at 10 Hz
+INSPECTION_REPLAN_EVERY_N_STEPS = 120   # the map improves as it drives, and
+                                        # a route that looked open may not be
+INSPECTION_PATH_NODE_TOLERANCE_M = 0.45
+INSPECTION_PLAN_FAIL_COOLDOWN = 60
+INSPECTION_NO_PROGRESS_STEPS = 500      # stop closing on a point for this
+                                        # long and the robot gives up on it
+INSPECTION_MAX_STEPS_PER_POINT = 4000   # backstop only; the no-progress rule
+                                        # is the real detector
+
+
+# =====================================================================
+# 10. PRIOR MAP  (Design Change 01, section 5)
+# =====================================================================
+# Robots are issued the facility's documented layout at the start of the
+# mission, seeded into their occupancy grid at +/- this many log-odds.
+#
+# THIS SINGLE NUMBER IS THE WHOLE DESIGN:
+#   too high -> the robot argues with reality and never sees a deviation
+#   too low  -> the prior buys nothing and we are back to exploring
+#
+# At 2.0, with the classification threshold at 1.0 and a beam-hit worth
+# +0.85, roughly 4 contradicting observations overturn a "free" cell and
+# roughly 8 overturn an "occupied" one (LOG_ODDS_FREE is deliberately
+# weaker than LOG_ODDS_OCCUPIED). The drawings are therefore believed, but
+# overturnable -- which is the entire point.
+PRIOR_LOG_ODDS = 2.0
+
+
+# =====================================================================
+# 11. DEVIATIONS FROM THE DRAWINGS  (Design Change 01, section 4)
+# =====================================================================
+# Ground truth contains things the documented layout does not show.
+# Injecting them per run, from the seed, is what makes deviation count a
+# per-run variable rather than a fixture -- which is what makes it usable
+# statistically.
+#
+# Set DEVIATIONS_MIN/MAX to 0 for condition C0 (no deviations).
+
+DEVIATIONS_MIN_PER_RUN = 5
+DEVIATIONS_MAX_PER_RUN = 8
+
+# Relative likelihood of each type. Normalised in code, so these are
+# weights and need not sum to 1.
+#   added   -- scaffolding, a temporary barrier, parked equipment:
+#              the drawings say open, reality says blocked
+#   removed -- equipment taken out for maintenance:
+#              the drawings say solid, reality says open
+#   blocked -- an aisle closed off. The operationally interesting one,
+#              because it changes the COST of the mission and not just
+#              the map.
+DEVIATION_TYPE_WEIGHTS = {"added": 0.4, "removed": 0.3, "blocked": 0.3}
+
+DEVIATION_ADDED_MIN_SIZE_M = 1.2   # a scaffold tower
+DEVIATION_ADDED_MAX_SIZE_M = 3.0   # a parked trailer
+DEVIATION_PLACEMENT_ATTEMPTS = 300
+
+# At most one deviation per run may cut an inspection point off from the
+# rest of the site (decision 3). More than that and a bad seed would
+# decide the experiment. Any candidate that would exceed this is reverted
+# and another is drawn.
+MAX_UNREACHABLE_POINTS = 1
+
+# Corridors that can plausibly be closed off, as barrier rectangles
+# (name, x0, y0, x1, y1). Hand-picked rather than random because "an aisle
+# closed off" is only meaningful if there IS an aisle there; a random
+# rectangle in open ground is an added obstacle, which is the other type.
+#
+# Most of these have an alternative route, so they force a detour. A few
+# (the bund access gap especially) would seal a whole area off; those get
+# reverted by the MAX_UNREACHABLE_POINTS rule above, which is the rule
+# doing its job rather than a candidate list that needs fixing.
+BLOCKED_ROUTE_CANDIDATES = [
+    ("compressor house south door",    54.0, 33.0, 57.0, 33.5),
+    ("compressor house west door",     45.0, 38.5, 45.5, 41.0),
+    ("compressor house centre aisle",  56.5, 36.0, 59.5, 39.0),
+    ("pipe rack bay at x = 24 m",      21.4, 25.0, 26.6, 26.0),
+    ("pipe rack bay at x = 54 m",      51.4, 25.0, 56.6, 26.0),
+    ("process aisle, exchangers 1-2",  21.0, 36.0, 23.0, 38.2),
+    ("process aisle, exchangers 2-3",  27.0, 36.0, 29.0, 38.2),
+    ("utility aisle, skids 1-2",       13.6,  9.0, 15.4, 12.0),
+    ("utility aisle, skids 2-3",       20.1,  9.0, 21.9, 12.0),
+    ("north road behind the store",    13.0, 52.6, 14.0, 54.5),
+    ("east yard corridor",             73.5, 12.0, 79.5, 13.0),
+    ("bund access gap",                43.0, 12.5, 43.5, 15.5),
+]
+
+# A deviation counts as DETECTED when this fraction of its evidence cells
+# (see deviations.py) have been overturned in the robot's own map -- that
+# is, the robot now believes the opposite of what the drawings told it.
+#
+# It is a fraction and not a cell count because deviations differ in size
+# by two orders of magnitude: a scaffold tower is a few hundred cells, a
+# removed exchanger nearly nine thousand.
+DEVIATION_DETECT_FRACTION = 0.25
+
+# Spatial tolerance when comparing the robot's map against the drawings,
+# in cells. DELIBERATELY THE SAME NUMBER as the tolerance in
+# OccupancyGrid.surface_scores(), and for exactly the same reason: the
+# robot integrates its scans at its BELIEVED pose, so a correctly observed
+# obstacle lands a cell or two away from its true footprint. Scoring
+# detection at zero tolerance measures odometry error rather than whether
+# the robot found the deviation.
+#
+# Measured on seed 42: at zero tolerance the run detects 1 deviation of 5,
+# and four of the misses have their evidence sitting 1-3 cells off. At 2
+# cells it detects 4 of 5. The fifth is a genuine miss -- the route never
+# passed within 10.5 m of it, and the LiDAR only reaches 8 m.
+DEVIATION_TOLERANCE_CELLS = 2
+DEVIATION_CHECK_EVERY_STEPS = 50   # steps between detection checks. Also
+                                   # the resolution of the detection
+                                   # latency reported per deviation type.
+

@@ -36,6 +36,12 @@ class OccupancyGrid:
         # log-odds accumulator. 0.0 everywhere = "completely unknown".
         self.L = np.zeros((self.n_rows, self.n_cols), dtype=np.float32)
 
+        # The documented layout the robot was issued, kept separately from
+        # what it has since observed. None until seed_prior() is called --
+        # a robot with no prior is the emergency-response scenario, where
+        # the drawings cannot be trusted and it must map from nothing.
+        self.prior_L = None
+
         # Provenance ledger: how much log-odds each robot contributed.
         # This is what makes ROLLBACK possible when a robot is later found
         # to be faulty. It is the software equivalent of the "immutable
@@ -43,6 +49,43 @@ class OccupancyGrid:
         self._contributions = {}
 
         self.step_m = config.LIDAR_RAY_STEP_M
+
+    # -----------------------------------------------------------------
+    def seed_prior(self, documented_grid, log_odds=config.PRIOR_LOG_ODDS):
+        """
+        Issue this robot the facility's documented layout before it sets
+        off. Design Change 01, section 5.
+
+        WHY A MODERATE CONFIDENCE AND NOT CERTAINTY
+          The drawings are seeded at +/- 2.0 rather than at the +/- 8.0
+          clamp, so they are BELIEVED BUT OVERTURNABLE. The classification
+          threshold is +/- 1.0, a beam ending on a cell is worth +0.85 and
+          a beam passing through is worth -0.40, so:
+
+              a cell drawn as OPEN needs   ~4 hits          to become solid
+              a cell drawn as SOLID needs  ~8 pass-throughs to become open
+
+          which is the detection latency predicted in section 11 of the
+          design note. Seed it at the clamp instead and the robot would
+          argue with reality for the whole mission.
+
+        WHY THE PRIOR IS KEPT SEPARATELY
+          Two reasons, and both matter.
+          1. Deviation detection compares what the drawings said against
+             what was observed. That comparison needs the drawings to
+             still be available afterwards, not folded away into a single
+             number per cell.
+          2. It is deliberately NOT written to self._contributions. The
+             prior is infrastructure issued by the operator, not a
+             robot's contribution, so rollback() must never take it away.
+             Quarantining a Byzantine robot removes what that robot said;
+             it does not un-issue the plot plan.
+        """
+        self.prior_L = np.where(documented_grid == 1,
+                                log_odds, -log_odds).astype(np.float32)
+        self.L += self.prior_L
+        np.clip(self.L, -config.LOG_ODDS_CLAMP, config.LOG_ODDS_CLAMP,
+                out=self.L)
 
     # -----------------------------------------------------------------
     def integrate_scan(self, x, y, theta, ranges, angles, valid,
@@ -130,6 +173,11 @@ class OccupancyGrid:
         checking flags robot 2 as Byzantine, we call rollback(2) and the
         global map is restored to what it would have been without it.
         Demonstrating this live is a very strong defence moment.
+
+        Note what this does NOT remove: the prior from seed_prior(). Only
+        entries in _contributions are subtracted, and the prior was never
+        written there. Quarantining a robot withdraws what that robot
+        said, not the plot plan the operator issued.
         """
         if source_id in self._contributions:
             self.L -= self._contributions[source_id]
@@ -232,6 +280,52 @@ class OccupancyGrid:
               if (precision + recall) > 0 else 0.0)
         return precision, recall, f1
 
+    def contradicts_prior(self, tolerance_cells=None):
+        """
+        This robot's deviation report, as two masks:
+
+            now_solid : the drawings show open ground, the robot has since
+                        established that something is standing there
+            now_open  : the drawings show something solid, the robot has
+                        since driven or looked straight through it
+
+        Reads only the robot's own map and the prior it was issued. No
+        ground truth is involved, so this is a report a real robot could
+        produce and radio home.
+
+        WHY THERE IS A SPATIAL TOLERANCE
+          Scans are integrated at the BELIEVED pose, so an obstacle the
+          robot has correctly seen lands a cell or two from where it truly
+          is. Comparing cell-for-cell would therefore score odometry drift
+          rather than detection. This is the same argument -- and the same
+          tolerance -- as surface_scores(), and Chapter 3 should declare it
+          once for both.
+
+          WHAT MUST BE DILATED IS THE CONTRADICTION, NOT THE BELIEF. An
+          earlier version grew the "occupied" and "free" masks first and
+          compared afterwards. That reported deviations at step 0, before
+          the robot had moved: growing the free mask by two cells reaches
+          the surface of every wall the drawings show, and growing the
+          occupied mask reaches the open ground beside it, so the prior
+          contradicted itself. Overturn the cell first, then allow the
+          evidence to spread. A cell still sitting at its prior value now
+          contributes nothing, whatever its neighbours say.
+        """
+        if tolerance_cells is None:
+            tolerance_cells = config.DEVIATION_TOLERANCE_CELLS
+        if self.prior_L is None:
+            raise RuntimeError("this map was never issued a prior, so there "
+                               "is nothing for an observation to contradict")
+
+        drawn_solid = self.prior_L > 0
+        now_solid = (~drawn_solid) & (self.L >= config.LOG_ODDS_OCC_THRESHOLD)
+        now_open = drawn_solid & (self.L <= config.LOG_ODDS_FREE_THRESHOLD)
+
+        if tolerance_cells > 0:
+            now_solid = self._dilate(now_solid, tolerance_cells)
+            now_open = self._dilate(now_open, tolerance_cells)
+        return now_solid, now_open
+
     def error_rate(self, facility):
         """Fraction of CLASSIFIED cells that are classified wrongly."""
         cls = self.classified()
@@ -258,3 +352,79 @@ class OccupancyGrid:
         if both.sum() == 0:
             return 0.0
         return float((a[both] != b[both]).sum() / both.sum())
+
+
+# =====================================================================
+# Verification: python mapping.py
+#   Confirms a robot starts the mission holding the documented layout,
+#   and that the deviations are absent from that starting belief.
+# =====================================================================
+if __name__ == "__main__":
+    from environment import Facility
+    from inspection import generate_inspection_points, reachability_planner
+    from deviations import inject_deviations, contradiction_fraction
+
+    seed = config.DEFAULT_SEED
+
+    facility = Facility()
+    planner = reachability_planner(facility)
+    points = generate_inspection_points(facility, seed, planner)
+    devs = inject_deviations(facility, points, seed, planner)
+
+    grid = OccupancyGrid(facility, owner_id=0)
+    unknown_before = int((grid.classified() == -1).sum())
+    grid.seed_prior(facility.documented_grid)
+
+    cls = grid.classified()
+    drawn = facility.documented_grid
+    matches_drawings = bool(np.array_equal(cls == 1, drawn == 1))
+    unknown_after = int((cls == -1).sum())
+    levels = sorted(set(np.unique(grid.L).tolist()))
+
+    print("\n" + "=" * 66)
+    print(f"  PRIOR MAP SEEDING -- seed {seed}")
+    print("=" * 66)
+    print(f"  Prior confidence             : +/- {config.PRIOR_LOG_ODDS} log-odds")
+    print(f"  Distinct log-odds values     : {levels}")
+    print(f"  Unknown cells before seeding : {unknown_before:,} "
+          f"({100*unknown_before/grid.L.size:.1f} %)")
+    print(f"  Unknown cells after seeding  : {unknown_after:,}")
+    print(f"  Belief matches the drawings  : {matches_drawings}")
+    print(f"  Prior stored separately      : {grid.prior_L is not None}")
+
+    # --- the prior is not a robot contribution, so rollback keeps it ---
+    grid.integrate_scan(*config.START_POSE_XY, 0.0,
+                        np.array([1.0]), np.array([0.0]),
+                        np.array([True]), source_id=0)
+    rolled = grid.rollback(0)
+    prior_survived = bool(np.array_equal(grid.L, grid.prior_L))
+    print(f"  rollback() ran               : {rolled}")
+    print(f"  Prior survives rollback()    : {prior_survived}")
+
+    # --- the deviations are NOT in the robot's starting belief ---------
+    print("-" * 66)
+    print("  The robot starts believing the drawings, so at step 0 it")
+    print("  contradicts none of the deviations that are actually there:")
+    print(f"  {'#':<3s} {'type':<8s} {'where':<32s} {'contradicted':>12s}")
+    for i, d in enumerate(devs):
+        print(f"  {i:<3d} {d.kind:<8s} {d.name:<32s} "
+              f"{contradiction_fraction(d, grid)*100:11.1f} %")
+
+    # --- how many observations it takes to overturn the prior ----------
+    # Section 11 of the design note predicts this rather than discovering
+    # it. Recomputed here from the actual config values, so the table in
+    # the write-up cannot drift away from the code.
+    hits_to_flip = int(np.ceil((config.LOG_ODDS_OCC_THRESHOLD +
+                                config.PRIOR_LOG_ODDS) /
+                               config.LOG_ODDS_OCCUPIED))
+    passes_to_flip = int(np.ceil((-config.LOG_ODDS_FREE_THRESHOLD +
+                                  config.PRIOR_LOG_ODDS) /
+                                 -config.LOG_ODDS_FREE))
+    print("-" * 66)
+    print("  Observations needed to overturn the drawings:")
+    print(f"    added obstacle   (drawn open, now solid) : {hits_to_flip}  hits")
+    print(f"    removed obstacle (drawn solid, now open) : {passes_to_flip}  pass-throughs")
+    print("    -- removed obstacles take about twice as long to confirm,")
+    print("       because a beam hit is stronger evidence than a beam that")
+    print("       passes through. That is the sensor model, not a bug.")
+    print("=" * 66 + "\n")
