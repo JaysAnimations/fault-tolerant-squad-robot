@@ -173,6 +173,11 @@ FRONTIER_MIN_TRAVEL_CELLS = 12   # 4.8 m: closer frontiers are consumed by looki
 RNG_STREAM_ROBOT = 0        # sensor noise, odometry drift
 RNG_STREAM_INSPECTION = 1   # inspection point positions
 RNG_STREAM_DEVIATIONS = 2   # which deviations, and where
+RNG_STREAM_COMMS = 3        # radio packet loss
+# In the squad, each robot draws from [seed, RNG_STREAM_ROBOT, robot_id],
+# so robot 1's sensor noise does not shift when robot 0 happens to drive
+# somewhere else. Without that, changing one robot's behaviour would
+# change every robot's noise and the paired comparison would be lost.
 
 
 # =====================================================================
@@ -227,6 +232,23 @@ INSPECTION_CLEARANCE_M = 0.55     # the robot (r = 0.25 m) must be able to
 # One coarse cell is 0.4 m, comfortably more than the 0.25 m robot radius,
 # so this stays a conservative test of whether the robot fits.
 REACHABILITY_INFLATE_CELLS = 1
+
+# Obstacle inflation used for NAVIGATION, in coarse cells of 0.4 m.
+#
+# The planner tries the normal margin first and falls back to the tight one
+# only when the normal margin finds no route at all. Two numbers rather
+# than one because they trade against each other and the trade is measured:
+# at 0.4 m clearance the scripted tour collided 3026 times, at 0.8 m it
+# collides 20 times, and at 1.2 m the site fragments into 5 disconnected
+# regions. So 0.8 m is right for driving -- but it is 0.8 m from BOTH
+# sides, which closes the control building's 2.0 m doorway completely and
+# makes the planner declare a demonstrably reachable room unreachable.
+#
+# Comfortable margin normally, minimum margin only where the geometry
+# leaves no choice. The tight value matches REACHABILITY_INFLATE_CELLS on
+# purpose: it is the same physical claim, that 0.4 m clears a 0.25 m robot.
+PLANNER_INFLATE_CELLS = 2
+PLANNER_TIGHT_INFLATE_CELLS = 1
 INSPECTION_MIN_SEPARATION_M = 2.5  # two points 0.3 m apart are one point
 INSPECTION_PLACEMENT_ATTEMPTS = 500  # rejection sampling budget per point
 INSPECTION_REACHED_M = 0.9        # believed distance that counts as a visit
@@ -354,4 +376,93 @@ DEVIATION_TOLERANCE_CELLS = 2
 DEVIATION_CHECK_EVERY_STEPS = 50   # steps between detection checks. Also
                                    # the resolution of the detection
                                    # latency reported per deviation type.
+
+
+# =====================================================================
+# 12. THE SQUAD  (Step 2)
+# =====================================================================
+# Three robots, each with a PRIVATE map. There is no shared map object
+# anywhere in the code -- that is what "decentralised" means here, and a
+# panel will check it. Robots learn what other robots saw only by being
+# close enough to hear them say so.
+
+SQUAD_SIZE = 3
+
+# Fixed deployment: a rank of robots on the south perimeter road beside
+# the gate, verified clear of obstacles at start-up. Robot 0 stands on the
+# single-robot start position so the two missions are anchored to the same
+# place and the comparison is fair. 4 m apart so they do not begin on top
+# of one another.
+SQUAD_START_POSES = [
+    (3.5, 3.5, 0.0),
+    (7.5, 3.5, 0.0),
+    (11.5, 3.5, 0.0),
+]
+
+# --- radio -----------------------------------------------------------
+COMMS_RANGE_M = 25.0          # beyond this, robots cannot hear each other.
+                              # Steel vessels and cable trays are what makes
+                              # this short in a real plant.
+COMMS_PACKET_LOSS_PROB = 0.05  # an in-range message still fails 5 % of the
+                               # time. Without this, comms would be a
+                               # perfect channel and the comms-loss fault
+                               # would have nothing to degrade from.
+
+# Modelled payload sizes, in kilobytes. A map message does NOT carry the
+# whole 240,000-cell grid: a real system sends a compressed update of the
+# cells that changed, and charging 940 KB per meeting would make comms
+# dominate an energy budget it has no business dominating. This is the
+# modelled size of that update, and it is a parameter precisely so the
+# assumption is visible rather than buried.
+COMMS_MAP_PACKET_KB = 64.0
+COMMS_CLAIM_PACKET_KB = 0.05   # a claim is a point number and a cost
+
+COMMS_EXCHANGE_EVERY_N_STEPS = 200   # how often a robot offers its map
+
+# --- auction over inspection points ----------------------------------
+# A robot broadcasts what a point would cost it to reach. It does not
+# pursue a point another robot has claimed more cheaply.
+#
+# CLAIMS ARE LEASES, NOT DEEDS. A claim is refreshed while the robot is
+# still pursuing it and expires if the refresh stops. That is the whole
+# reason for the timeout: a robot that dies holding six claims must not
+# block those six points for the rest of the mission.
+CLAIM_REFRESH_EVERY_N_STEPS = 100
+CLAIM_TIMEOUT_STEPS = 400      # 40 s without a refresh and the claim lapses
+
+# End the round when the whole squad has been unable to take on any work
+# for this long. Points still open at that moment are unreachable as far
+# as the squad is concerned.
+#
+# This is the mission's real termination rule and it must exist. A point
+# cut off by a deviation is skipped by every robot in turn -- each looks at
+# it, finds no route on its own map, and moves on -- so no robot ever
+# "fails" at it in a way that would close it. Without this check, seed 2024
+# ran to the 40,000-step ceiling and took ten minutes to admit that one
+# valve was behind a wall.
+SQUAD_STALL_STEPS = 600
+
+# --- getting unstuck -------------------------------------------------
+# The reactive controller can wedge itself in a corner. Its braking cone
+# is +/- 25 degrees, but the collision box is a square, so a corner just
+# outside the cone reads as clear ahead while blocking every attempt to
+# move. The robot then commands full speed into it forever: on seed 2024
+# one robot logged 2,219 collisions from a standstill and inspected one
+# point in the whole mission.
+#
+# Nothing changes on its own in that state -- the map is already correct,
+# the plan is already valid, and the robot is simply jammed -- so it needs
+# an action that is not "drive at the goal". It reverses briefly and turns,
+# which is what a real robot does and what the reactive layer cannot
+# express, since it only ever drives forwards.
+SQUAD_ESCAPE_AFTER_BLOCKED_STEPS = 40   # 4 s of commanded motion, no motion
+SQUAD_ESCAPE_STEPS = 20                 # then back out for 2 s
+SQUAD_ESCAPE_SPEED_FRACTION = 0.5       # of MAX_LINEAR_SPEED_MPS, reversed
+SQUAD_ESCAPE_TURN_RPS = 0.6             # turn while reversing, so a second
+                                        # attempt approaches differently
+
+# --- trajectory trace -------------------------------------------------
+# Logged so a mission can be replayed as video later without re-running
+# the simulation. Kept deliberately thin: one sample per robot per second.
+TRACE_EVERY_N_STEPS = 25
 

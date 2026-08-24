@@ -53,7 +53,7 @@ import numpy as np
 import config
 from environment import L_DEVIATION
 from inspection import (build_zones, reachability_planner, reachable_field,
-                        is_reachable)
+                        is_reachable, can_be_inspected)
 
 
 class Deviation:
@@ -169,10 +169,18 @@ def _propose_blocked(pool):
 
 
 def _unreachable_points(facility, points, planner):
-    """Which inspection points ground truth has cut off from the start."""
+    """
+    Which inspection points ground truth has cut off from the start.
+
+    Asked with can_be_inspected, not is_reachable: the mission needs the
+    robot to get close enough to look at the point, not to stand on the
+    exact spot. Scaffolding standing on a valve does not put that valve
+    beyond inspection -- only scaffolding big enough to hold the robot
+    more than INSPECTION_REACHED_M away does.
+    """
     dist = reachable_field(planner, facility.grid, config.START_POSE_XY)
     return [p.index for p in points
-            if not is_reachable(planner, dist, p.x, p.y)]
+            if not can_be_inspected(planner, dist, p.x, p.y)]
 
 
 def inject_deviations(facility, points, seed=config.DEFAULT_SEED,

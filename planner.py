@@ -48,7 +48,8 @@ import config
 
 class WavefrontPlanner:
 
-    def __init__(self, facility, downsample=4, inflate_cells=2):
+    def __init__(self, facility, downsample=4,
+                 inflate_cells=config.PLANNER_INFLATE_CELLS):
         """
         downsample     : plan on a coarser grid for speed. 4 turns an
                          800x550 grid into 200x137, ~16x less work. The path
@@ -70,13 +71,16 @@ class WavefrontPlanner:
         self.c_cols = facility.n_cols // downsample
 
     # -----------------------------------------------------------------
-    def _coarse_blocked(self, occupancy_map):
+    def _coarse_blocked(self, occupancy_map, inflate=None):
         """
         Build the coarse traversability grid from the robot's own belief.
 
         A coarse cell is blocked if ANY fine cell inside it is believed
         occupied. Being pessimistic about obstacles while optimistic about
         unknown space is the correct bias for a mapping robot.
+
+        `inflate` overrides the instance's margin. plan() uses that to
+        retry a failed route with a tighter margin.
         """
         occ = occupancy_map.L >= config.LOG_ODDS_OCC_THRESHOLD
 
@@ -85,7 +89,9 @@ class WavefrontPlanner:
         blocks = occ[:r, :c].reshape(self.c_rows, self.ds, self.c_cols, self.ds)
         blocked = blocks.any(axis=(1, 3))
 
-        for _ in range(self.inflate):
+        if inflate is None:
+            inflate = self.inflate
+        for _ in range(inflate):
             g = blocked.copy()
             g[1:, :] |= blocked[:-1, :]
             g[:-1, :] |= blocked[1:, :]
@@ -112,6 +118,71 @@ class WavefrontPlanner:
         if d2[j] > max_cells ** 2:
             return None
         return int(cand[j, 0]), int(cand[j, 1])
+
+    # -----------------------------------------------------------------
+    def _coarse_solid(self, occupancy_map):
+        """
+        Coarse cells containing a believed obstacle, with NO margin added.
+
+        The difference between this and _coarse_blocked is the difference
+        between "there is a wall here" and "I would rather not drive here".
+        A robot can stand in the second; it cannot stand in the first.
+        """
+        occ = occupancy_map.L >= config.LOG_ODDS_OCC_THRESHOLD
+        r = self.c_rows * self.ds
+        c = self.c_cols * self.ds
+        return occ[:r, :c].reshape(self.c_rows, self.ds,
+                                   self.c_cols, self.ds).any(axis=(1, 3))
+
+    def _snap_start(self, occupancy_map, blocked, dist, sr, sc, max_cells=6):
+        """
+        Move the start to a nearby cell the goal flood actually reached.
+
+        THE SNAP MUST BE SOMEWHERE THE ROBOT CAN WALK TO. An earlier version
+        took the nearest reachable cell by straight-line distance, and that
+        is wrong in a way that took a three-robot run to expose: a robot
+        standing just inside the control building had its start snapped to a
+        cell two coarse cells away -- on the far side of the north wall,
+        because at the wide margin the sealed doorway meant nothing inside
+        the room had been reached by the flood. The planner then returned a
+        route that began outside the building, the robot drove at a wall for
+        the rest of the mission, and it inspected nothing.
+
+        So the search is a bounded flood outward from the robot's own cell
+        rather than a nearest-neighbour lookup. It may pass through cells
+        that are blocked only by the safety margin -- the robot is
+        demonstrably standing in one of those -- but never through a cell
+        that actually contains an obstacle. If it cannot get out, it returns
+        None, and plan() then retries at the tighter margin, which is what
+        opens the doorway.
+        """
+        solid = self._coarse_solid(occupancy_map)
+
+        q = deque([(sr, sc, 0)])
+        seen = {(sr, sc)}
+        while q:
+            r, c, d = q.popleft()
+            if dist[r, c] >= 0:
+                return r, c
+            if d >= max_cells:
+                continue
+            # Eight-connected on purpose. The search this replaced measured
+            # straight-line distance and accepted anything within 6 cells,
+            # so a four-connected flood of the same radius would reach less
+            # ground than before and reject snaps that used to work -- which
+            # cost the scripted tour 0.2 of its surface F1 before it was
+            # caught. Eight-connectivity restores the old reach; the useful
+            # restriction is the wall, not the radius.
+            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                           (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                nr, nc = r + dr, c + dc
+                if not (0 <= nr < self.c_rows and 0 <= nc < self.c_cols):
+                    continue
+                if (nr, nc) in seen or solid[nr, nc]:
+                    continue
+                seen.add((nr, nc))
+                q.append((nr, nc, d + 1))
+        return None
 
     # -----------------------------------------------------------------
     def _flood(self, blocked, sources):
@@ -152,10 +223,38 @@ class WavefrontPlanner:
         Returns a list of (x, y) waypoints in metres, or None if the goal is
         unreachable given what the robot currently believes.
 
+        TWO MARGINS, TRIED IN ORDER
+        ---------------------------
+        The comfortable margin is tried first. If it finds no route at all,
+        the tight margin is tried before giving up.
+
+        This exists because of a specific, measurable failure. Obstacles are
+        inflated by 0.8 m so paths do not scrape walls -- but that is 0.8 m
+        from EACH side, so a 2.0 m doorway is reduced to 0.4 m and the 0.4 m
+        coarse grid rounds it shut. The planner then reported the control
+        building unreachable, although demo_single.py drives into it. The
+        caller's only recourse was to steer straight at the goal and hope,
+        which meant pushing against the outside wall.
+
+        A margin is a preference, not a law. Where the geometry leaves no
+        comfortable route, take the tight one; 0.4 m still clears a 0.25 m
+        robot. Where a comfortable route exists this changes nothing, since
+        the second attempt only runs after the first returns None.
+        """
+        path = self._plan_at(occupancy_map, start_xy, goal_xy, self.inflate)
+        if path is None and self.inflate > config.PLANNER_TIGHT_INFLATE_CELLS:
+            path = self._plan_at(occupancy_map, start_xy, goal_xy,
+                                 config.PLANNER_TIGHT_INFLATE_CELLS)
+        return path
+
+    def _plan_at(self, occupancy_map, start_xy, goal_xy, inflate):
+        """
+        One planning attempt at a given obstacle margin.
+
         We flood from the GOAL, then walk downhill from the start, so the
         field stays valid wherever the robot drifts to.
         """
-        blocked = self._coarse_blocked(occupancy_map)
+        blocked = self._coarse_blocked(occupancy_map, inflate)
 
         gr, gc = self._to_coarse(*goal_xy)
         sr, sc = self._to_coarse(*start_xy)
@@ -185,16 +284,12 @@ class WavefrontPlanner:
         #
         # A robot that is briefly inside an inflated obstacle is not lost.
         # Snap it to the nearest reachable cell and carry on. Only give up if
-        # it is genuinely stranded, more than 2.4 m from anywhere reachable.
+        # it is genuinely stranded.
         if dist[sr, sc] < 0:
-            cand = np.argwhere(dist >= 0)
-            if len(cand) == 0:
+            snapped = self._snap_start(occupancy_map, blocked, dist, sr, sc)
+            if snapped is None:
                 return None
-            d2 = (cand[:, 0] - sr) ** 2 + (cand[:, 1] - sc) ** 2
-            j = int(np.argmin(d2))
-            if d2[j] > 36:            # 6 coarse cells = 2.4 m
-                return None
-            sr, sc = int(cand[j, 0]), int(cand[j, 1])
+            sr, sc = snapped
 
         # --- walk downhill from start to goal ---
         path = []

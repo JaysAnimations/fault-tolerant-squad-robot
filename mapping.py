@@ -148,22 +148,55 @@ class OccupancyGrid:
             self._contributions[source_id] += delta
 
     # -----------------------------------------------------------------
+    def own_observations(self):
+        """
+        What THIS robot has seen with its own sensor.
+
+        Excludes two things, and both exclusions matter when robots start
+        sharing maps:
+
+          the PRIOR -- every robot was issued the same drawings. Sending
+          them to each other adds information neither of them gathered,
+          and after a few meetings every cell would sit at the clamp with
+          the deviations buried under it.
+
+          ANYTHING MERGED FROM OTHERS -- if A tells B and B then tells C
+          what A said, C would hold A's evidence twice once it meets A
+          directly. Log-odds addition cannot tell that two numbers came
+          from the same observation. Robots therefore share only what they
+          saw themselves; evidence travels one hop, on direct contact.
+        """
+        own = self._contributions.get(self.owner_id)
+        return own if own is not None else np.zeros_like(self.L)
+
     def merge_from(self, other, source_id=None, weight=1.0):
         """
-        Fuse another robot's map into this one.
+        Fuse another robot's observations into this one.
 
         Because both maps are in log-odds, fusion is simply addition --
         this is the mathematical reason decentralised mapping works at all,
         and it is worth one slide in your presentation.
+
+        IDEMPOTENT ON PURPOSE. Robots meet again and again, and addition is
+        not idempotent: merging the same map twice would count the same
+        evidence twice. We therefore apply only the part not already taken
+        from this source, using the provenance ledger rollback() already
+        keeps. Merging an unchanged map is then a no-op, and the ledger
+        still holds the total contributed by that robot, so quarantining it
+        later removes exactly what it gave us.
         """
-        contrib = other.L * weight
-        self.L += contrib
+        payload = other.own_observations() * weight
+        previous = self._contributions.get(source_id)
+        if source_id is None:
+            # Untracked merge: no provenance, so no rollback and no
+            # protection against double counting. Present for completeness;
+            # the squad always passes a source_id.
+            self.L += payload
+        else:
+            self.L += payload if previous is None else payload - previous
+            self._contributions[source_id] = payload.copy()
         np.clip(self.L, -config.LOG_ODDS_CLAMP, config.LOG_ODDS_CLAMP,
                 out=self.L)
-        if source_id is not None:
-            if source_id not in self._contributions:
-                self._contributions[source_id] = np.zeros_like(self.L)
-            self._contributions[source_id] += contrib
 
     def rollback(self, source_id):
         """

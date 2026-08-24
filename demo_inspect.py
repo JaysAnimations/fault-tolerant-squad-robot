@@ -50,7 +50,7 @@ from robot import Robot
 from planner import WavefrontPlanner
 from control import choose_velocity
 from inspection import (generate_inspection_points, reachability_planner,
-                        points_by_zone)
+                        points_by_zone, inspection_distance)
 from deviations import inject_deviations, update_detection, detection_summary
 
 
@@ -94,18 +94,38 @@ def choose_next_point(ranker, grid, points, robot_xy):
 
     best, best_d = None, None
     for p in pending:
-        r, c = ranker._to_coarse(p.x, p.y)
-        if not (0 <= r < ranker.c_rows and 0 <= c < ranker.c_cols):
-            continue
-        d = int(dist[r, c])
-        if d < 0:
+        # Distance to the nearest cell the point can be INSPECTED from, not
+        # to the point itself. The robot only has to get within
+        # INSPECTION_REACHED_M to do its job, so a point whose own cell its
+        # map now calls blocked -- because it has just discovered
+        # scaffolding standing on it -- is still worth driving to. Ranking
+        # it as unreachable would abandon a point the robot could inspect.
+        d = inspection_distance(ranker, dist, p.x, p.y)
+        if d is None:
             continue          # the robot's own map says there is no way in
         if best is None or d < best_d:
             best, best_d = p, d
     return best, best_d
 
 
-def run(seed=config.DEFAULT_SEED, verbose=True):
+def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True):
+    """
+    Drive one inspection round.
+
+    use_prior=False runs the IDENTICAL mission -- same points, same
+    deviations, same sensor noise -- with a blank starting map instead of
+    the documented layout. That is the controlled comparison the design
+    note's section 6 asks for, and it isolates one variable: what the
+    drawings are worth.
+
+    Comparing against demo_explore.py cannot answer that question, because
+    that run performs a different mission (cover the site) and is scored on
+    a different quantity. Here only the prior differs.
+
+    With no prior there is nothing for an observation to contradict, so
+    deviation detection is not scored -- a deviation is by definition a
+    discrepancy from the drawings, and this robot was not issued any.
+    """
     # The robot's own randomness (sensor noise, wheel slip) is drawn from a
     # stream of its own, so that switching deviations on or off does not
     # change the noise the robot experiences. See config section 8.
@@ -122,7 +142,8 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
     # --- issue the robot its equipment and its drawings ---------------
     lidar = Lidar2D()
     grid = OccupancyGrid(facility, owner_id=0)
-    grid.seed_prior(facility.documented_grid)
+    if use_prior:
+        grid.seed_prior(facility.documented_grid)
     planner = WavefrontPlanner(facility)
 
     sx, sy = config.START_POSE_XY
@@ -184,24 +205,10 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
         plan_cooldown -= 1
         need_plan = (not path) or (path_index >= len(path)) or (replan_countdown <= 0)
         if need_plan and plan_cooldown <= 0:
+            # plan() now retries at a tighter margin by itself when the
+            # comfortable one finds no route, so the doorway case is handled
+            # inside the planner rather than worked around out here.
             new_path = planner.plan(grid, me, goal)
-            if new_path is None:
-                # No route with the full 0.8 m safety margin. Before giving
-                # up, look for one with the minimum margin.
-                #
-                # WHY THIS IS NEEDED AND WHAT IT COST TO LEARN: the control
-                # building has a single 2.0 m doorway. Inflating obstacles
-                # by 0.8 m on each side leaves 0.4 m, which the coarse grid
-                # rounds away, so the wide-margin planner believes the room
-                # is sealed and returns None. The robot then steered
-                # straight at the goal, pushed against the outside wall for
-                # 500 steps, and gave up -- losing an entire zone and
-                # generating most of the run's collisions.
-                #
-                # A 2.0 m doorway is passable by a 0.5 m robot. The margin
-                # is a preference, not a law, so when the comfortable route
-                # does not exist we take the tight one.
-                new_path = ranker.plan(grid, me, goal)
             replan_countdown = config.INSPECTION_REPLAN_EVERY_N_STEPS
             if new_path:
                 path, path_index = new_path, 0
@@ -209,6 +216,7 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
                 plan_cooldown = config.INSPECTION_PLAN_FAIL_COOLDOWN
 
         advanced = False
+        node = None
         if path and path_index < len(path):
             node = path[path_index]
             if np.hypot(node[0] - robot.bx, node[1] - robot.by) < \
@@ -216,8 +224,6 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
                 path_index += 1
                 advanced = True
                 node = path[min(path_index, len(path) - 1)]
-        else:
-            node = goal
 
         # ---------- 5. PROGRESS ----------
         # Progress means advancing along the planned route, not shrinking
@@ -249,7 +255,16 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
             target = None
 
         # ---------- 6. MOVE ----------
-        v, w, _ = choose_velocity(robot, ranges, angles, node)
+        if node is None:
+            # No route, at either margin. Hold station instead of steering
+            # straight at the goal: without a plan the only thing driving
+            # at it achieves is pushing against whatever stands in the way.
+            # Standing still costs idle power, the no-progress counter keeps
+            # running, and the point is given up on in due course -- which
+            # is the robot concluding for itself that it cannot get there.
+            v, w = 0.0, 0.0
+        else:
+            v, w, _ = choose_velocity(robot, ranges, angles, node)
         robot.step_motion(v, w, facility)
 
         if not robot.alive:
@@ -259,7 +274,10 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
             break
 
         # ---------- 7. REPORT DEVIATIONS ----------
-        if step % config.DEVIATION_CHECK_EVERY_STEPS == 0:
+        # Only meaningful with a prior: a deviation is a discrepancy from
+        # the drawings, and a robot that was issued none has nothing to
+        # disagree with.
+        if use_prior and step % config.DEVIATION_CHECK_EVERY_STEPS == 0:
             update_detection(deviations, grid, step)
 
         # ---------- 8. RECORD ----------
@@ -272,9 +290,10 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
             trail_x.append(robot.x)
             trail_y.append(robot.y)
 
-    update_detection(deviations, grid, step)
+    if use_prior:
+        update_detection(deviations, grid, step)
 
-    stats = {"steps": step, "ended": ended}
+    stats = {"steps": step, "ended": ended, "use_prior": use_prior}
     return (facility, grid, robot, points, deviations, history,
             (trail_x, trail_y), stats)
 
@@ -292,11 +311,20 @@ def report(facility, grid, robot, points, deviations, history, trail, stats):
     det = detection_summary(deviations)
     errors = [p.visit_error_m for p in visited if p.visit_error_m is not None]
 
+    use_prior = stats.get("use_prior", True)
+
     print("\n" + "=" * 66)
-    print("  INSPECTION ROUND WITH A PRIOR MAP -- SINGLE ROBOT")
-    print("=" * 66)
-    print("  The robot was issued the documented layout and the list of")
-    print("  points. It was NOT told where the deviations are.")
+    if use_prior:
+        print("  INSPECTION ROUND WITH A PRIOR MAP -- SINGLE ROBOT")
+        print("=" * 66)
+        print("  The robot was issued the documented layout and the list of")
+        print("  points. It was NOT told where the deviations are.")
+    else:
+        print("  INSPECTION ROUND WITH NO PRIOR MAP -- SINGLE ROBOT")
+        print("=" * 66)
+        print("  Same points, same deviations, same noise. The robot was")
+        print("  issued the list of points but NO drawings -- it starts with")
+        print("  a blank map and must discover the layout as it goes.")
     print("-" * 66)
     print(f"  Inspection points visited  : {len(visited):3d} / {len(points)} "
           f"({100*len(visited)/len(points):.1f} %)")
@@ -317,26 +345,34 @@ def report(facility, grid, robot, points, deviations, history, trail, stats):
     print("  Per zone : " + "   ".join(per_zone))
 
     print("-" * 66)
-    print("  DEVIATIONS FROM THE DRAWINGS")
-    print(f"  {'#':<3s} {'type':<8s} {'zone':<5s} {'where':<30s} "
-          f"{'found':>6s} {'at':>7s} {'overturned':>11s}")
-    for i, d in enumerate(deviations):
-        when = (f"{d.detected_step * config.DT_S:6.0f}s"
-                if d.detected_step is not None else "     --")
-        # "overturned" is the peak fraction of the deviation's evidence
-        # cells the robot's map contradicted. It says whether a miss was a
-        # near miss or a total one, which is the difference between a
-        # threshold that needs tuning and a robot that never went there.
-        print(f"  {i:<3d} {d.kind:<8s} {d.zone_code:<5s} {d.name:<30s} "
-              f"{'YES' if d.detected else 'no':>6s} {when:>7s} "
-              f"{d.best_fraction*100:10.0f} %")
-    print(f"  >> DEVIATION DETECTION RATE : {det['detected']} / {det['total']}"
-          f"  ({det['rate']*100:.0f} %)")
-    for kind in sorted(det["by_kind"]):
-        k = det["by_kind"][kind]
-        mean_t = (np.mean(k["steps"]) * config.DT_S if k["steps"] else float("nan"))
-        print(f"       {kind:<8s} {k['detected']}/{k['total']} detected, "
-              f"mean time to detect {mean_t:6.0f} s")
+    if use_prior:
+        print("  DEVIATIONS FROM THE DRAWINGS")
+        print(f"  {'#':<3s} {'type':<8s} {'zone':<5s} {'where':<30s} "
+              f"{'found':>6s} {'at':>7s} {'overturned':>11s}")
+        for i, d in enumerate(deviations):
+            when = (f"{d.detected_step * config.DT_S:6.0f}s"
+                    if d.detected_step is not None else "     --")
+            # "overturned" is the peak fraction of the deviation's evidence
+            # cells the robot's map contradicted. It says whether a miss was
+            # a near miss or a total one, which is the difference between a
+            # threshold that needs tuning and a robot that never went there.
+            print(f"  {i:<3d} {d.kind:<8s} {d.zone_code:<5s} {d.name:<30s} "
+                  f"{'YES' if d.detected else 'no':>6s} {when:>7s} "
+                  f"{d.best_fraction*100:10.0f} %")
+        print(f"  >> DEVIATION DETECTION RATE : {det['detected']} / {det['total']}"
+              f"  ({det['rate']*100:.0f} %)")
+        for kind in sorted(det["by_kind"]):
+            k = det["by_kind"][kind]
+            mean_t = (np.mean(k["steps"]) * config.DT_S
+                      if k["steps"] else float("nan"))
+            print(f"       {kind:<8s} {k['detected']}/{k['total']} detected, "
+                  f"mean time to detect {mean_t:6.0f} s")
+    else:
+        print(f"  DEVIATIONS: {len(deviations)} injected, detection not scored.")
+        print("  With no drawings there is nothing for an observation to")
+        print("  contradict, so deviation detection is not available. That")
+        print("  is itself the finding: a robot without an as-built map can")
+        print("  map the facility, but it cannot report what has changed.")
 
     print("-" * 66)
     print(f"  Distance travelled         : {robot.distance_travelled_m:6.1f} m")
@@ -352,8 +388,38 @@ def report(facility, grid, robot, points, deviations, history, trail, stats):
         print(f"    {k:<10s} {val:9.1f} J   ({pct:4.1f} %)")
     print(f"    {'TOTAL':<10s} {robot.total_energy_j:9.1f} J")
     print(f"  Battery remaining          : {robot.battery_fraction*100:5.1f} %")
+
+    # ENERGY PER m2 NEEDS CARE ONCE THERE IS A PRIOR, and this is worth
+    # being able to explain. OccupancyGrid.coverage_fraction counts cells
+    # the map believes are free -- but the robot was ISSUED the drawings,
+    # so every documented-free cell reads as free at step 0 and coverage
+    # starts at ~99 %. Divide energy by that and the inspection round looks
+    # free, which is nonsense: it would be measuring the drawings, not the
+    # mission.
+    #
+    # The honest denominator is the area the robot OBSERVED for itself:
+    # truly-free cells that its own scans both drove below where they
+    # started AND took past the "free" threshold. That is the same quantity
+    # the other two demos divide by -- area this robot established -- so
+    # the numbers can be compared, which is what section 6 of the design
+    # note asks for.
+    #
+    # The baseline is what the cell started at: the prior when there is
+    # one, zero when there is not. Written this way the no-prior run is
+    # measured by exactly the same rule, so the only difference between
+    # the two runs is the thing under test.
+    baseline = grid.prior_L if grid.prior_L is not None else 0.0
+    observed_free = ((facility.grid == 0)
+                     & (grid.L <= config.LOG_ODDS_FREE_THRESHOLD)
+                     & (grid.L < baseline))
+    observed_area = float(observed_free.sum()) * facility.res ** 2
+    site_free_area = facility.free_area_m2()
+    print(f"  Free area observed         : {observed_area:6.0f} m2 "
+          f"({100*observed_area/site_free_area:.1f} % of the site)")
     print(f"  >> ENERGY PER POINT VISITED : "
           f"{robot.total_energy_j / max(len(visited), 1):6.0f} J")
+    print(f"  >> ENERGY PER m2 OBSERVED   : "
+          f"{robot.total_energy_j / max(observed_area, 1e-6):6.2f} J/m2")
     print("=" * 66 + "\n")
 
     # ---------------- figure ----------------
@@ -395,12 +461,13 @@ def report(facility, grid, robot, points, deviations, history, trail, stats):
     contra = np.zeros((facility.n_rows, facility.n_cols, 3), dtype=np.float32)
     contra[:] = (0.97, 0.96, 0.94)
     contra[facility.documented_grid == 1] = (0.80, 0.80, 0.80)
-    # Drawn at zero tolerance so the panel shows the cells the robot
-    # actually overturned. The detection METRIC allows +/- 2 cells, for the
-    # pose-error reason given in OccupancyGrid.contradicts_prior.
-    now_solid, now_open = grid.contradicts_prior(tolerance_cells=0)
-    contra[now_solid] = (0.86, 0.15, 0.15)
-    contra[now_open] = (0.15, 0.35, 0.80)
+    if use_prior:
+        # Drawn at zero tolerance so the panel shows the cells the robot
+        # actually overturned. The detection METRIC allows +/- 2 cells, for
+        # the pose-error reason given in OccupancyGrid.contradicts_prior.
+        now_solid, now_open = grid.contradicts_prior(tolerance_cells=0)
+        contra[now_solid] = (0.86, 0.15, 0.15)
+        contra[now_open] = (0.15, 0.35, 0.80)
     ax.imshow(contra, origin="lower", extent=ext, interpolation="nearest")
     for d in deviations:
         x0, y0, x1, y1 = d.rect
@@ -413,7 +480,8 @@ def report(facility, grid, robot, points, deviations, history, trail, stats):
         Patch(facecolor="none", edgecolor="#1D9E75", label="deviation, detected"),
         Patch(facecolor="none", edgecolor="#000000", label="deviation, missed")],
         loc="upper right", fontsize=7)
-    ax.set_title("Where the robot's map contradicts the drawings")
+    ax.set_title("Where the robot's map contradicts the drawings" if use_prior
+                 else "No drawings issued -- nothing to contradict")
     ax.set_xlabel("x (m)"); ax.set_ylabel("y (m)")
 
     ax = axes[1, 1]
@@ -428,9 +496,14 @@ def report(facility, grid, robot, points, deviations, history, trail, stats):
     ax.grid(alpha=0.3)
 
     fig.tight_layout()
-    fig.savefig("demo_inspect_result.png", dpi=125)
-    print("Saved demo_inspect_result.png")
+    name = ("demo_inspect_result.png" if use_prior
+            else "demo_inspect_noprior_result.png")
+    fig.savefig(name, dpi=125)
+    print(f"Saved {name}")
 
 
 if __name__ == "__main__":
-    report(*run())
+    import sys
+    # python demo_inspect.py            -- with the documented layout
+    # python demo_inspect.py --no-prior -- same mission, blank starting map
+    report(*run(use_prior="--no-prior" not in sys.argv))

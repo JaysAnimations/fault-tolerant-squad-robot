@@ -107,6 +107,7 @@ class InspectionPoint:
 
         self.visited = False
         self.visit_step = None      # when the robot declared it visited
+        self.visited_by = None      # which robot got there (squad missions)
         self.visit_error_m = None   # true distance at that moment -- the
                                     # honest check on navigating by odometry
         self.unreachable = False    # ground truth says no route exists
@@ -173,9 +174,10 @@ def is_reachable(planner, dist_field, x, y):
     return bool(dist_field[r, c] >= 0)
 
 
-def can_be_inspected(planner, dist_field, x, y, radius_m=None):
+def inspection_distance(planner, dist_field, x, y, radius_m=None):
     """
-    Could the robot get close enough to inspect this point?
+    Travel distance to the nearest cell this point can be INSPECTED from,
+    in coarse cells, or None if no such cell can be reached.
 
     A DIFFERENT QUESTION FROM is_reachable, and the distinction matters.
     The robot counts a point as visited once it believes it is within
@@ -193,16 +195,24 @@ def can_be_inspected(planner, dist_field, x, y, radius_m=None):
     cell_m = planner.ds * planner.res
     span = int(np.ceil(radius_m / cell_m))
 
+    best = None
     for rr in range(r - span, r + span + 1):
         for cc in range(c - span, c + span + 1):
             if not (0 <= rr < planner.c_rows and 0 <= cc < planner.c_cols):
                 continue
-            if dist_field[rr, cc] < 0:
+            d = int(dist_field[rr, cc])
+            if d < 0:
                 continue
             wx, wy = planner._to_world(rr, cc)
             if np.hypot(wx - x, wy - y) <= radius_m:
-                return True
-    return False
+                if best is None or d < best:
+                    best = d
+    return best
+
+
+def can_be_inspected(planner, dist_field, x, y, radius_m=None):
+    """Can the robot get close enough to inspect this point at all?"""
+    return inspection_distance(planner, dist_field, x, y, radius_m) is not None
 
 
 # ---------------------------------------------------------------------
