@@ -197,7 +197,7 @@ def gave_up_message(sender_id, point_index, cost, step):
             "cost": cost, "step": step}
 
 
-def map_message(sender_id, grid, step, done, gave_up, suspicions):
+def map_message(sender_id, grid, step, done_by, gave_up, suspicions):
     """
     "Here is what I have seen, and here is where the round stands."
 
@@ -215,10 +215,15 @@ def map_message(sender_id, grid, step, done, gave_up, suspicions):
     ever heard that one point was unreachable: on seed 2024, 60 % of the
     mission was spent that way.
 
-    So when two robots do meet, they reconcile. `done` is a set of point
-    numbers and `gave_up` maps a point number to what it cost the robot
-    that failed at it -- a few hundred bytes beside a map update, which is
-    why the modelled packet size does not change.
+    So when two robots do meet, they reconcile. `done_by` maps a point
+    number to the robot that reported inspecting it, and `gave_up` maps a
+    point number to what it cost the robot that failed at it -- a few
+    hundred bytes beside a map update, which is why the modelled packet
+    size does not change.
+
+    `done_by` carries WHO rather than just WHICH, because a quarantine has
+    to be able to take back everything the quarantined robot reported. A
+    bare set of point numbers cannot say whose completions to withdraw.
 
     `suspicions` rides along for the same reason `done` does: a one-off
     announcement only reaches whoever was listening at that instant, and
@@ -226,4 +231,5 @@ def map_message(sender_id, grid, step, done, gave_up, suspicions):
     packet.
     """
     return {"kind": "map", "from": sender_id, "grid": grid, "step": step,
-            "done": done, "gave_up": gave_up, "suspicions": suspicions}
+            "done_by": done_by, "gave_up": gave_up,
+            "suspicions": suspicions}

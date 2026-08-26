@@ -1,4 +1,4 @@
-"""
+﻿"""
 squad.py
 ========
 One robot's private world, and the auction that stops three of them doing
@@ -126,8 +126,13 @@ class SquadMember:
     """One robot and everything it privately owns."""
 
     def __init__(self, robot_id, pose, facility, seed, use_prior=True,
-                 use_auction=True):
+                 use_auction=True, reallocation=None):
         x, y, theta = pose
+        # Whether one robot's unfinished work can become another's. Gates
+        # all three routes -- claim expiry, a cheaper bid taking a claim,
+        # and the give-up broadcast. See REALLOCATION_ENABLED.
+        self.reallocation = (config.REALLOCATION_ENABLED
+                             if reallocation is None else reallocation)
         # use_auction=False makes the robot ignore what everybody else says
         # they are doing, while still sharing maps. It exists as the control
         # case: without it there is no way to show that the auction is doing
@@ -197,6 +202,10 @@ class SquadMember:
         self.inbox = []
         self.claims = {}      # point index -> {"by", "cost", "heard_at"}
         self.done = set()     # points it believes are finished
+        # ...and WHO it believes finished each one. Needed because a
+        # quarantine invalidates everything the quarantined robot reported,
+        # and a bare set of indices cannot say which those are.
+        self.done_by = {}
         self.given_up = set()  # points it tried and could not reach
         # ...and what each of them cost when it took them on, so the
         # finding can be passed to somebody who has not tried yet.
@@ -293,9 +302,15 @@ class SquadMember:
                 if msg["from"] in self.ignore_claims_from:
                     continue
                 held = self.claims.get(msg["point"])
+                # With permanent claims the first one heard stands; a later
+                # cheaper bid does not displace it, because displacing it
+                # is how work moves off a failed robot.
+                overtakes = (msg["cost"] < held["cost"]
+                             if (held is not None and self.reallocation)
+                             else False)
                 if (held is None
                         or self._claim_expired(held, step)
-                        or msg["cost"] < held["cost"]
+                        or overtakes
                         or held["by"] == msg["from"]):
                     self.claims[msg["point"]] = {"by": msg["from"],
                                                  "cost": msg["cost"],
@@ -309,6 +324,7 @@ class SquadMember:
                 # tie leaves the incumbent in place and two robots cannot
                 # yield to each other.
                 if (self.use_auction
+                        and self.reallocation
                         and self.target is not None
                         and msg["point"] == self.target.index
                         and msg["from"] != self.id
@@ -332,7 +348,10 @@ class SquadMember:
                 self.claims.pop(msg["point"], None)
 
             elif kind == "visited":
+                if msg["from"] in self.quarantined:
+                    continue    # we do not credit a quarantined robot
                 self.done.add(msg["point"])
+                self.done_by[msg["point"]] = msg["from"]
                 self.claims.pop(msg["point"], None)
                 # A success overrides an earlier failure: if somebody got
                 # there, it is reachable after all.
@@ -373,8 +392,18 @@ class SquadMember:
                 # Reconcile the round as well as the map. A point somebody
                 # has inspected is simply done -- that is a fact, not a
                 # judgement, so it is taken as given.
-                self.done |= msg["done"]
-                for idx in msg["done"]:
+                #
+                # UNLESS WE HAVE QUARANTINED WHOEVER DID IT. A robot we no
+                # longer trust to have mapped correctly is a robot we no
+                # longer trust to have inspected correctly either, and
+                # without this filter a team-mate's next map exchange
+                # simply hands the invalidated completions straight back
+                # and undoes the re-inspection.
+                for idx, who in msg["done_by"].items():
+                    if who in self.quarantined:
+                        continue
+                    self.done.add(idx)
+                    self.done_by.setdefault(idx, who)
                     self.gave_up_elsewhere.pop(idx, None)
                     self.claims.pop(idx, None)
 
@@ -397,8 +426,16 @@ class SquadMember:
         self.inbox.clear()
         return merged
 
-    @staticmethod
-    def _claim_expired(claim, step):
+    def _claim_expired(self, claim, step):
+        """
+        Has this claim lapsed?
+
+        Never, when claims are deeds rather than leases. That is the naive
+        condition: whoever claimed a point keeps it, alive or dead, and if
+        it dies the point simply never gets visited.
+        """
+        if not self.reallocation:
+            return False
         return (step - claim["heard_at"]) > config.CLAIM_TIMEOUT_STEPS
 
     # =================================================================
@@ -505,9 +542,15 @@ class SquadMember:
                 if (held is not None
                         and held["by"] != self.id
                         and not self._claim_expired(held, step)
-                        and held["cost"] <= cost):
+                        # A permanent claim is not open to a better offer.
+                        # "Held until it visits it" has to mean exactly
+                        # that, or a closer robot simply takes the work off
+                        # a dying one and the naive condition quietly
+                        # recovers after all.
+                        and (not self.reallocation
+                             or held["cost"] <= cost)):
                     deferred += 1
-                    continue       # somebody else can get there cheaper
+                    continue       # somebody else has it
 
                 # ACCEPT SOMEBODY ELSE'S FAILURE unless we are much better
                 # placed than they were. Repeating a team-mate's failed
@@ -662,9 +705,13 @@ class SquadMember:
             return
         if step - self.last_map_broadcast < config.COMMS_EXCHANGE_EVERY_N_STEPS:
             return
+        # given_up costs travel only when reallocation is enabled -- they
+        # are how a team-mate learns it need not retry somebody else's
+        # abandoned point, which is reallocation by another route.
         radio.broadcast(self, map_message(self.id, self.grid, step,
-                                          set(self.done),
-                                          dict(self.given_up_cost),
+                                          dict(self.done_by),
+                                          dict(self.given_up_cost)
+                                          if self.reallocation else {},
                                           self._suspicion_payload()),
                         squad, config.COMMS_MAP_PACKET_KB)
         self.last_map_broadcast = step
@@ -767,7 +814,13 @@ class SquadMember:
         p.visited_by = self.id
         p.visit_error_m = float(np.hypot(p.x - self.robot.x,
                                          p.y - self.robot.y))
+        # Was it actually inspected? Scored against the TRUE pose, which is
+        # the simulator's business and never the robot's -- a displaced
+        # robot has no way of knowing it is standing in the wrong place.
+        if p.visit_error_m <= config.INSPECTION_VERIFY_RADIUS_M:
+            p.truly_visited = True
         self.done.add(p.index)
+        self.done_by[p.index] = self.id
         self.claims.pop(p.index, None)
         radio.broadcast(self, visited_message(self.id, p.index, step),
                         squad, config.COMMS_CLAIM_PACKET_KB)
@@ -785,6 +838,23 @@ class SquadMember:
         p = self.target
         cost = self.target_cost
         self.given_up.add(p.index)
+
+        if not self.reallocation:
+            # THE NAIVE CASE: it keeps the claim and the point is lost.
+            #
+            # Giving up and announcing it is not base mission behaviour, it
+            # is self-reported failure detection followed by task
+            # reallocation -- exactly the capability under test. Leaving it
+            # switched on in the naive condition is what produced the
+            # immobilised inversion, where C2 beat C3: an immobilised robot
+            # gave up on every point it was holding and the healthy robots
+            # quietly collected them, with fault tolerance turned off.
+            #
+            # So here the robot stops trying, says nothing, and keeps the
+            # claim that stops anybody else trying either.
+            self._clear_target()
+            return
+
         self.given_up_cost[p.index] = cost
         self.claims.pop(p.index, None)
         radio.broadcast(self, gave_up_message(self.id, p.index, cost, step),

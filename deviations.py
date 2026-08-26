@@ -184,7 +184,7 @@ def _unreachable_points(facility, points, planner):
 
 
 def inject_deviations(facility, points, seed=config.DEFAULT_SEED,
-                      planner=None, verbose=False):
+                      planner=None, verbose=False, count=None):
     """
     Edit ground truth so it disagrees with the drawings, and return the
     list of Deviations injected.
@@ -197,8 +197,12 @@ def inject_deviations(facility, points, seed=config.DEFAULT_SEED,
     if planner is None:
         planner = reachability_planner(facility)
 
-    n_target = int(rng.integers(config.DEVIATIONS_MIN_PER_RUN,
-                                config.DEVIATIONS_MAX_PER_RUN + 1))
+    # Always draw, even when the answer is overridden, so that the
+    # deviation stream advances identically in every condition and seed 7
+    # keeps giving seed 7's inspection points everywhere.
+    n_drawn = int(rng.integers(config.DEVIATIONS_MIN_PER_RUN,
+                               config.DEVIATIONS_MAX_PER_RUN + 1))
+    n_target = n_drawn if count is None else int(count)
     if n_target == 0:
         return []                        # condition C0: perfect drawings
 

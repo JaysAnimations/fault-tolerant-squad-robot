@@ -1,4 +1,4 @@
-"""
+﻿"""
 demo_squad.py
 =============
 STEP 2: three robots inspect the facility together.
@@ -50,6 +50,7 @@ from inspection import (generate_inspection_points, reachability_planner,
                         points_by_zone)
 from deviations import inject_deviations, update_detection, detection_summary
 from comms import Radio
+from mapping import OccupancyGrid
 from squad import SquadMember, TrajectoryTrace
 from faults import FaultInjector
 from detection import squad_accusations
@@ -79,23 +80,30 @@ def mission_over(points, squad):
 
 
 def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
-        use_auction=True, faults=None, detect=True, recover=None):
+        use_auction=True, faults=None, detect=True, recover=None,
+        reallocation=None, with_deviations=True, squad_size=None):
     facility = Facility()
     ranker = reachability_planner(facility)
 
     # --- the mission: identical to the single-robot one on this seed ---
     points = generate_inspection_points(facility, seed, ranker)
+    # count=0 is condition C0: drawings that are perfectly accurate. The
+    # deviation stream is drawn from either way, so switching it off does
+    # not shift any other random quantity and the seeds stay paired.
     deviations = inject_deviations(facility, points, seed, ranker,
-                                   verbose=verbose)
+                                   verbose=verbose,
+                                   count=None if with_deviations else 0)
 
     # --- deploy --------------------------------------------------------
-    poses = config.SQUAD_START_POSES[:config.SQUAD_SIZE]
+    n_robots = config.SQUAD_SIZE if squad_size is None else squad_size
+    poses = config.SQUAD_START_POSES[:n_robots]
     for i, (x, y, _th) in enumerate(poses):
         if not facility._has_clearance(x, y, config.ROBOT_RADIUS_M + 0.3):
             raise ValueError(f"start pose {i} at ({x}, {y}) is not clear of "
                              "obstacles -- fix SQUAD_START_POSES")
 
-    squad = [SquadMember(i, pose, facility, seed, use_prior, use_auction)
+    squad = [SquadMember(i, pose, facility, seed, use_prior, use_auction,
+                         reallocation)
              for i, pose in enumerate(poses)]
     radio = Radio(np.random.default_rng([seed, config.RNG_STREAM_COMMS]))
     trace = TrajectoryTrace()
@@ -154,8 +162,8 @@ def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
                         recovery_log.append(action)
                         if verbose:
                             print(f"  [recovery] robot {action['by']} "
-                                  f"{'quarantined' if action['rolled_back'] else 'down-weighted'}"
-                                  f" robot {action['suspect']} for "
+                                  f"{'+'.join(action['did'])} robot "
+                                  f"{action['suspect']} for "
                                   f"{action['fault']} at step {step} "
                                   f"(accusers {action['accusers']})")
                 for m in squad:
@@ -247,6 +255,13 @@ def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
 def squad_metrics(facility, squad, points):
     """The numbers Chapter 4 wants, computed once and shared by the report."""
     visited = [p for p in points if p.visited]
+    # What the squad THINKS it inspected against what it actually did. The
+    # gap is the wrong-position fault's real damage: a displaced robot
+    # drives to where it believes a gauge is, believes it arrived, and
+    # files an inspection it never performed. Scored on true positions,
+    # which is analysis and never available to any robot.
+    truly = [p for p in points if p.truly_visited]
+    invalidated = [p for p in points if p.invalidated]
     unreachable = [p for p in points if p.unreachable]
     missed_reachable = [p for p in points
                         if not p.visited and not p.unreachable]
@@ -266,6 +281,8 @@ def squad_metrics(facility, squad, points):
     cell_area = facility.res ** 2
     return {
         "visited": len(visited), "total": len(points),
+        "believed": len(visited), "truly": len(truly),
+        "invalidated": len(invalidated),
         "unreachable": len(unreachable), "missed": len(missed_reachable),
         "success": len(missed_reachable) == 0,
         "distance": total_distance, "energy": total_energy,
@@ -274,6 +291,51 @@ def squad_metrics(facility, squad, points):
         "area_twice_m2": twice * cell_area,
         "redundancy": (twice / seen) if seen else 0.0,
     }
+
+
+def squad_map_metrics(facility, squad):
+    """
+    Coverage, surface F1 and observed-cell error for the map the squad
+    collectively produced.
+
+    ANALYSIS ONLY, AND IT MATTERS THAT THIS IS SAID OUT LOUD. No robot
+    holds this map and none ever could: it is the prior plus every robot's
+    own observations added together, assembled here by the analyst because
+    a report needs one number for "the map the squad produced". Building it
+    inside the simulation would be the global map object this project
+    spends its architecture avoiding.
+
+    Each robot's OWN observations are summed, not its merged grid, because
+    merged grids already contain each other and adding them would count the
+    same evidence three times.
+
+    The error is scored over cells the squad actually observed, per the
+    convention in CLAUDE.md -- scoring all 440,000 would mostly measure how
+    accurate the drawings are.
+    """
+    union = OccupancyGrid(facility, owner_id=-1)
+    if squad and squad[0].grid.prior_L is not None:
+        union.seed_prior(facility.documented_grid)
+
+    observed = np.zeros((facility.n_rows, facility.n_cols), dtype=bool)
+    for m in squad:
+        own = m.grid.own_observations()
+        union.L += own
+        observed |= (own != 0.0)
+    np.clip(union.L, -config.LOG_ODDS_CLAMP, config.LOG_ODDS_CLAMP,
+            out=union.L)
+
+    coverage = union.coverage_fraction(facility) * 100.0
+    _prec, _rec, f1 = union.surface_scores(facility)
+
+    cls = union.classified()
+    decided = observed & (cls >= 0)
+    if decided.any():
+        truth = (facility.grid == 1).astype(np.int8)
+        err = float((cls[decided] != truth[decided]).sum() / decided.sum())
+    else:
+        err = 0.0
+    return coverage, f1, err * 100.0
 
 
 def contact_fraction(trace, squad_size, range_m=None):

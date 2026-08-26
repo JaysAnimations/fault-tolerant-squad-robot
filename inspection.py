@@ -105,9 +105,20 @@ class InspectionPoint:
         self.x = float(x)
         self.y = float(y)
 
-        self.visited = False
+        self.visited = False        # the squad BELIEVES this is inspected
         self.visit_step = None      # when the robot declared it visited
         self.visited_by = None      # which robot got there (squad missions)
+
+        # Was the robot GENUINELY within inspection range when it said so?
+        # Analysis only -- no robot can compute this, because no robot knows
+        # its own true position. Latches: once something really was
+        # inspected, that stays true even if the squad later decides to
+        # re-inspect it. The gap between this and `visited` is the headline
+        # result for the wrong-position fault -- a displaced robot drives to
+        # where it thinks a gauge is, believes it arrived, and reports an
+        # inspection it never performed.
+        self.truly_visited = False
+        self.invalidated = False    # a quarantine took its completion back
         self.visit_error_m = None   # true distance at that moment -- the
                                     # honest check on navigating by odometry
         self.unreachable = False    # ground truth says no route exists

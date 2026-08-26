@@ -174,6 +174,7 @@ RNG_STREAM_ROBOT = 0        # sensor noise, odometry drift
 RNG_STREAM_INSPECTION = 1   # inspection point positions
 RNG_STREAM_DEVIATIONS = 2   # which deviations, and where
 RNG_STREAM_COMMS = 3        # radio packet loss
+RNG_STREAM_FAULTS = 4       # which fault a seed gets in the suite
 # In the squad, each robot draws from [seed, RNG_STREAM_ROBOT, robot_id],
 # so robot 1's sensor noise does not shift when robot 0 happens to drive
 # somewhere else. Without that, changing one robot's behaviour would
@@ -254,6 +255,23 @@ INSPECTION_PLACEMENT_ATTEMPTS = 500  # rejection sampling budget per point
 INSPECTION_REACHED_M = 0.9        # believed distance that counts as a visit
                                   # (matches WAYPOINT_TOLERANCE_M in the
                                   # scripted tour, so the two are comparable)
+
+# The distance at which the inspection is actually PERFORMED, as opposed to
+# the distance at which the robot decides it has arrived. Used only to score
+# whether a point was genuinely inspected -- never by a robot, which cannot
+# know its own true position.
+#
+# WHY IT IS NOT THE SAME NUMBER AS THE ARRIVAL TOLERANCE. A healthy robot
+# lands a mean 0.89 m from the point it believes it has reached, because
+# odometry drift is real and the arrival test is made on the believed pose.
+# Verify at 0.9 m and roughly half of all *healthy* arrivals fail their own
+# test, which would report a fault-free squad as inspecting nothing.
+#
+# 2 m is the physically motivated figure: it is about the range at which a
+# camera can read a gauge or a valve position, which is what an inspection
+# point represents. A robot 2 m from a gauge has inspected it. A robot 6 m
+# away -- one pipe-rack bay, the wrong-position fault -- has not.
+INSPECTION_VERIFY_RADIUS_M = 2.0
 
 # Fixed deployment point: the charging station just inside the gate. Held
 # constant across every run and every condition so start position is not a
@@ -467,6 +485,45 @@ COMMS_EXCHANGE_EVERY_N_STEPS = 200   # how often a robot offers its map
 CLAIM_REFRESH_EVERY_N_STEPS = 100
 CLAIM_TIMEOUT_STEPS = 400      # 40 s without a refresh and the claim lapses
 
+# ...AND THE LEASE ITSELF IS A FAULT-TOLERANCE MECHANISM, so it has to sit
+# under the fault-tolerance flag rather than running in every condition.
+#
+# THIS FLAG GATES ALL THREE ROUTES BY WHICH ONE ROBOT'S UNFINISHED WORK
+# CAN BECOME ANOTHER ROBOT'S RESPONSIBILITY. A naive system has none of
+# them, and they were found one at a time:
+#
+#   1. a claim lapsing on a timeout              (found Session 9)
+#   2. a cheaper bid taking a claim off its holder (found Session 9)
+#   3. a robot giving up and telling the squad   (found Session 10)
+#
+# The third was left in C2 for a session because it looked like base
+# mission behaviour. It is not: a robot that abandons a point and
+# announces it has performed self-reported failure detection followed by
+# task reallocation, which is exactly the capability under test. It is
+# also what produced the immobilised inversion, where the naive condition
+# beat the fault-tolerant one -- an immobilised robot gave up on every
+# point it held and the healthy robots collected them, with fault
+# tolerance switched off.
+#
+# The name says reallocation rather than claim expiry because expiry is
+# only one of the three.
+#
+# This was measured the hard way. With expiry always on, a robot that died
+# holding a claim had its work quietly picked up by whoever bid next --
+# nobody detected anything, nobody decided anything, the auction simply
+# re-let the lease. That is recovery, and it was running in BOTH arms of
+# the C2/C3 comparison, which is why Session 8 measured fault tolerance
+# moving the mission from 578/595 points to 579/595 and concluded it
+# "barely changes the outcome". The mechanism was on both sides of the
+# equals sign.
+#
+# With expiry off a claim is permanent: the robot that claimed point 17
+# holds it until it visits it, and if it dies the point is never visited.
+# That is the genuinely naive baseline, and it matches the hardware
+# demonstrator, where fault tolerance off means the surviving robot
+# finishes its own lane and stops.
+REALLOCATION_ENABLED = True
+
 # When a robot gives up on a point it says so, and the others take its word
 # for it -- unless they are MUCH closer than it was. This is the fraction:
 # a robot only re-attempts an abandoned point if its own cost is below this
@@ -603,6 +660,38 @@ FAULT_DEMO_ROBOT = 1
 
 
 # =====================================================================
+# 16. THE EXPERIMENT SUITE  (Step 6)
+# =====================================================================
+# Six conditions x 30 seeds = 180 runs, one row each in results.csv.
+#
+# PAIRED SEEDING IS THE WHOLE DESIGN. Seed 7 produces the same inspection
+# points, the same deviations, the same sensor noise and the same fault at
+# the same step in every condition it appears in. Only the condition
+# differs, so a difference between two rows with the same seed is caused
+# by the condition and by nothing else. Never reseed per condition.
+#
+# 7, 42 and 2024 are included deliberately: they are the seeds every
+# development session measured against, 2024 especially -- it is the long,
+# awkward one with a point cut off by a deviation, and a suite that
+# excluded it would flatter the system.
+EXPERIMENT_SEEDS = tuple(range(1, 29)) + (42, 2024)
+
+# Which fault a seed gets. Drawn from its own stream so that adding or
+# removing a condition cannot shift it, and fixed per seed so that C2, C5,
+# C3 and C4 all break the same way at the same moment.
+#
+# The robot and the step are held constant rather than drawn. Varying them
+# too would spread 30 seeds across three nuisance dimensions at once and
+# leave roughly two runs per cell -- enough to add variance, nowhere near
+# enough to measure anything with.
+EXPERIMENT_FAULT_STEP = FAULT_DEMO_STEP
+EXPERIMENT_FAULT_ROBOT = FAULT_DEMO_ROBOT
+
+RESULTS_CSV = "results.csv"
+TRACE_DIR = "traces"
+
+
+# =====================================================================
 # 14. FAULT DETECTION  (Step 4)
 # =====================================================================
 # One detector per fault. Every one of them runs on a PEER's evidence, not
@@ -659,7 +748,26 @@ RECOVERY_ENABLED = True
 # map comparison is not safe evidence on its own. Requiring corroboration
 # from an independent robot is what makes an accusation actionable, and it
 # is the whole reason the squad has three robots rather than two.
-RECOVERY_MIN_ACCUSERS = 2
+# ...but only for the DESTRUCTIVE action. Session 8 found that gating
+# everything on two accusers had a consequence nobody intended: comms loss
+# could never be acted on at all. Detection runs at 2/3, but two accusers
+# requires both healthy robots to reach the verdict independently, and
+# they rarely can -- so the rule that protects an isolated robot from
+# being quarantined also guaranteed its work was never reallocated.
+#
+# The two actions do not carry the same risk, so they should not demand
+# the same evidence:
+#
+#   quarantine + rollback   destructive. Discards a robot's observations
+#                           and cannot be undone. Two accusers.
+#   claim release           cheap. Worst case is that two robots drive to
+#                           the same inspection point and one wastes a
+#                           journey. One accuser.
+#
+# Acting wrongly on a claim release costs a detour. Acting wrongly on a
+# quarantine throws away a healthy robot's map.
+RECOVERY_QUARANTINE_ACCUSERS = 2
+RECOVERY_REALLOCATE_ACCUSERS = 1
 
 # How much a degraded robot's map is still worth. NOT zero: a noisy sensor
 # still sees walls, it just sees them badly, and throwing the data away
