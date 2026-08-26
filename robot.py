@@ -61,6 +61,7 @@ class Robot:
         self.distance_travelled_m = 0.0
         self.rotation_travelled_rad = 0.0
         self.commanded_distance_m = 0.0   # what we ASKED for
+        self.commanded_rotation_rad = 0.0  # ...including asking to turn
         self.collisions = 0
 
     # -----------------------------------------------------------------
@@ -96,11 +97,6 @@ class Robot:
         if not self.alive:
             return False
 
-        # A robot with failed motors pays idle power but goes nowhere.
-        if not self.mobile:
-            self._spend("compute", config.P_COMPUTE_W * dt)
-            return False
-
         v = float(np.clip(v_cmd, -config.MAX_LINEAR_SPEED_MPS,
                           config.MAX_LINEAR_SPEED_MPS))
         w = float(np.clip(w_cmd, -config.MAX_ANGULAR_SPEED_RPS,
@@ -108,6 +104,30 @@ class Robot:
 
         ds = v * dt              # distance this step
         dth = w * dt             # rotation this step
+
+        # RECORD WHAT WAS ASKED FOR BEFORE CHECKING WHETHER IT HAPPENED.
+        # These are "what we ASKED for", and they are the only signal that
+        # separates a robot whose motors have failed from one that is
+        # legitimately parked: both stay still, but only one is still
+        # asking to move. Counting them after the mobility check made the
+        # two indistinguishable in telemetry, which would have left the
+        # immobilised fault undetectable by anything except ground truth.
+        #
+        # ROTATION MATTERS AS MUCH AS DISTANCE, and leaving it out very
+        # nearly hid the fault completely. An immobilised robot whose next
+        # path node is behind it commands a pure turn -- v is zero, because
+        # the controller will not drive until it is facing the right way.
+        # It cannot turn, so its heading never changes, so it commands the
+        # same pure turn forever. Distance commanded: zero. It looks
+        # exactly like a robot that has parked, while it is in fact
+        # straining against dead motors.
+        self.commanded_distance_m += abs(ds)
+        self.commanded_rotation_rad += abs(dth)
+
+        # A robot with failed motors pays idle power but goes nowhere.
+        if not self.mobile:
+            self._spend("compute", config.P_COMPUTE_W * dt)
+            return False
 
         # --- proposed TRUE motion ---
         new_theta = wrap_angle(self.theta + dth)
@@ -122,7 +142,6 @@ class Robot:
         self._spend("drive", config.E_DRIVE_J_PER_M * abs(ds))
         self._spend("turn", config.E_TURN_J_PER_RAD * abs(dth))
         self._spend("compute", config.P_COMPUTE_W * dt)
-        self.commanded_distance_m += abs(ds)
 
         if blocked:
             self.collisions += 1

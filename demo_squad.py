@@ -51,6 +51,8 @@ from inspection import (generate_inspection_points, reachability_planner,
 from deviations import inject_deviations, update_detection, detection_summary
 from comms import Radio
 from squad import SquadMember, TrajectoryTrace
+from faults import FaultInjector
+from detection import squad_accusations
 
 ROBOT_COLOURS = ["#1D4E89", "#C1442E", "#1D9E75"]
 
@@ -77,7 +79,7 @@ def mission_over(points, squad):
 
 
 def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
-        use_auction=True):
+        use_auction=True, faults=None, detect=True, recover=None):
     facility = Facility()
     ranker = reachability_planner(facility)
 
@@ -97,14 +99,26 @@ def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
              for i, pose in enumerate(poses)]
     radio = Radio(np.random.default_rng([seed, config.RNG_STREAM_COMMS]))
     trace = TrajectoryTrace()
+    injector = FaultInjector(faults)
 
     history = {"t": [], "visited": [], "energy": [], "detected": []}
     merges = 0
     ended = "step limit reached"
     step = 0
     last_progress = 0
+    if recover is None:
+        recover = config.RECOVERY_ENABLED
+    recovery_log = []
 
     for step in range(config.INSPECTION_MAX_STEPS):
+
+        # ---------- 0. BREAK SOMETHING ----------
+        # Before anything else this step, so the damage is in force for the
+        # whole of it. Nothing is told that this happened.
+        for robot_id, _at, name in injector.apply_due(squad, step):
+            if verbose:
+                print(f"  [fault] robot {robot_id}: {name} at step {step} "
+                      f"(t = {step * config.DT_S:.0f} s)")
 
         # ---------- 1. SENSE ----------
         for m in squad:
@@ -113,9 +127,39 @@ def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
         # ---------- 2. TALK ----------
         # Maps first, so a robot bids using the freshest belief it has.
         for m in squad:
+            m.send_heartbeat(step, radio, squad, points)
             m.offer_map(step, radio, squad)
         for m in squad:
             merges += m.process_inbox(step)
+
+        # ---------- 2b. NOTICE ----------
+        # Each robot judges its peers from what actually reached it. No
+        # robot is told it is broken, and nothing acts on an accusation --
+        # recovery is Step 5.
+        if detect:
+            peer_ids = [other.id for other in squad]
+            for m in squad:
+                if not m.robot.alive:
+                    continue
+                m.run_detectors(peer_ids, points, step)
+
+            # ---------- 2c. ACT ----------
+            # Conclusions are broadcast, and anything two robots
+            # independently agree on gets acted on. Never on one robot's
+            # word -- see config.RECOVERY_MIN_ACCUSERS.
+            if step % config.DETECTOR_EVERY_N_STEPS == 0:
+                for m in squad:
+                    for action in m.act_on_suspicions(points, step, radio,
+                                                      squad, recover):
+                        recovery_log.append(action)
+                        if verbose:
+                            print(f"  [recovery] robot {action['by']} "
+                                  f"{'quarantined' if action['rolled_back'] else 'down-weighted'}"
+                                  f" robot {action['suspect']} for "
+                                  f"{action['fault']} at step {step} "
+                                  f"(accusers {action['accusers']})")
+                for m in squad:
+                    m.process_inbox(step)
 
         # ---------- 3. AUCTION ----------
         # Inboxes are drained between bidders, so the second robot to bid
@@ -188,7 +232,14 @@ def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
     trace.record(step, squad)
     stats = {"steps": step, "ended": ended, "use_prior": use_prior,
              "use_auction": use_auction, "merges": merges,
-             "radio": radio.summary()}
+             "radio": radio.summary(), "faults": list(injector.fired),
+             "detections": squad_accusations(squad),
+             "silence_excused": sum(m.detector.silence_excused
+                                    for m in squad),
+             "recover": recover,
+             "recovery": recovery_log,
+             "released": sorted(set().union(*[m.released for m in squad])
+                                if squad else set())}
     return facility, squad, points, deviations, history, trace, stats
 
 
@@ -223,6 +274,46 @@ def squad_metrics(facility, squad, points):
         "area_twice_m2": twice * cell_area,
         "redundancy": (twice / seen) if seen else 0.0,
     }
+
+
+def contact_fraction(trace, squad_size, range_m=None):
+    """
+    Fraction of the mission a robot could hear at least one team-mate,
+    averaged over the squad.
+
+    THE NUMBER THAT DECIDES WHETHER RECOVERY CAN WORK AT ALL. Quarantine
+    requires two robots to corroborate an accusation, and two robots that
+    are never in contact cannot corroborate anything. At 25 m this sat
+    between 13 % and 64 %, which is why the comms range had to be derived
+    rather than assumed.
+
+    Measured on TRUE positions, from the trajectory trace. Radio range is
+    physics, so this is the simulator's view and not any robot's -- no
+    robot could compute it, and none is shown it.
+    """
+    if range_m is None:
+        range_m = config.COMMS_RANGE_M
+
+    arr = trace.to_arrays()
+    ids, steps = arr["id"], arr["step"]
+    per_robot = {}
+    for rid in range(squad_size):
+        sel = ids == rid
+        per_robot[rid] = (steps[sel], arr["x"][sel], arr["y"][sel])
+
+    n = min(len(v[0]) for v in per_robot.values()) if per_robot else 0
+    if n == 0:
+        return 0.0
+
+    in_contact = np.zeros((squad_size, n), dtype=bool)
+    for a in range(squad_size):
+        for b in range(squad_size):
+            if a == b:
+                continue
+            d = np.hypot(per_robot[a][1][:n] - per_robot[b][1][:n],
+                         per_robot[a][2][:n] - per_robot[b][2][:n])
+            in_contact[a] |= (d <= range_m)
+    return float(in_contact.mean())
 
 
 def report(facility, squad, points, deviations, history, trace, stats,
@@ -263,6 +354,15 @@ def report(facility, squad, points, deviations, history, trace, stats,
                 f"/{len(grouped[code])}"
                 for code in sorted(grouped, key=lambda c: int(c[1:]))]
     print("  Per zone : " + "   ".join(per_zone))
+
+    if stats.get("faults"):
+        print("-" * 70)
+        print("  FAULTS INJECTED")
+        for robot_id, at_step, name in stats["faults"]:
+            print(f"    robot {robot_id}: {name:<20s} at "
+                  f"{at_step * config.DT_S:6.0f} s")
+        print("    Nothing detected them. Detection is Step 4; this run only")
+        print("    shows the damage.")
 
     print("-" * 70)
     print("  COORDINATION")

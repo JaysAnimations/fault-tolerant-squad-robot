@@ -24,6 +24,20 @@ import numpy as np
 import config
 
 
+def classify(L):
+    """
+    Log-odds to a 3-state map: 1 occupied, 0 free, -1 still unknown.
+
+    Free function because Step 4 needs to classify beliefs that are not
+    self.L -- what the map would say on one robot's evidence alone. Kept
+    here so the two thresholds are written down exactly once.
+    """
+    out = np.full(L.shape, -1, dtype=np.int8)
+    out[L >= config.LOG_ODDS_OCC_THRESHOLD] = 1
+    out[L <= config.LOG_ODDS_FREE_THRESHOLD] = 0
+    return out
+
+
 class OccupancyGrid:
     """One robot's private belief about the world."""
 
@@ -228,10 +242,7 @@ class OccupancyGrid:
         Convert log-odds to a 3-state map.
           1 = occupied, 0 = free, -1 = still unknown
         """
-        out = np.full(self.L.shape, -1, dtype=np.int8)
-        out[self.L >= config.LOG_ODDS_OCC_THRESHOLD] = 1
-        out[self.L <= config.LOG_ODDS_FREE_THRESHOLD] = 0
-        return out
+        return classify(self.L)
 
     def known_mask(self):
         return self.L != 0.0
@@ -312,6 +323,48 @@ class OccupancyGrid:
         f1 = (2 * precision * recall / (precision + recall)
               if (precision + recall) > 0 else 0.0)
         return precision, recall, f1
+
+    def contribution_conflict(self, source_a, source_b):
+        """
+        How badly two robots' OWN observations contradict each other.
+
+        Returns (conflicting_cells, overlapping_cells), counting only cells
+        where BOTH sources have actually seen something. Two robots that
+        have never been to the same place have nothing to disagree about,
+        and dividing by the whole grid would bury a real conflict in
+        400,000 cells of untouched prior.
+
+        WHY THIS EXISTS AT ALL, AND WHY IT DOES NOT READ self.L. Comparing
+        the merged maps is the obvious approach and it is worse than
+        useless: robots merge before anyone compares, so a robot with a
+        displaced pose has already had its observations folded into
+        everybody else's map by the time a detector could look. Session 6
+        measured the merged maps *converging* under that fault -- 492 cells
+        in dispute against 2397 for a healthy squad. The faulty squad looks
+        healthier than the healthy one.
+
+        The provenance ledger is what makes an honest comparison possible.
+        It keeps each source's contribution separate, so we can reconstruct
+        what the map WOULD say on one robot's evidence alone -- the prior
+        it was issued, plus that robot's observations and nothing else --
+        and set two of those side by side.
+        """
+        a = self._contributions.get(source_a)
+        b = self._contributions.get(source_b)
+        if a is None or b is None:
+            return 0, 0
+
+        base = self.prior_L if self.prior_L is not None else 0.0
+        seen = (a != 0.0) & (b != 0.0)
+        overlap = int(seen.sum())
+        if overlap == 0:
+            return 0, 0
+
+        belief_a = classify(base + a if self.prior_L is not None else a)
+        belief_b = classify(base + b if self.prior_L is not None else b)
+        decided = seen & (belief_a >= 0) & (belief_b >= 0)
+        conflict = int((belief_a[decided] != belief_b[decided]).sum())
+        return conflict, overlap
 
     def contradicts_prior(self, tolerance_cells=None):
         """

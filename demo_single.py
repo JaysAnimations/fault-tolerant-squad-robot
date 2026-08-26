@@ -28,8 +28,9 @@ import config
 from environment import Facility
 from sensors import Lidar2D
 from mapping import OccupancyGrid
-from robot import Robot, wrap_angle
+from robot import Robot
 from planner import WavefrontPlanner
+from control import choose_velocity
 
 
 # ---------------------------------------------------------------------
@@ -104,57 +105,15 @@ PLAN_FAIL_COOLDOWN = 60         # steps to wait before retrying a failed plan
 
 
 
-def choose_velocity(robot, ranges, angles, valid, goal_xy):
-    """
-    Reactive go-to-goal controller with obstacle repulsion.
-
-    CRITICAL: this uses the robot's BELIEVED pose (bx, by, btheta), never
-    its true pose. That is what makes the navigation honest.
-    """
-    gx, gy = goal_xy
-    dx, dy = gx - robot.bx, gy - robot.by
-    dist_to_goal = np.hypot(dx, dy)
-
-    desired_heading = np.arctan2(dy, dx)
-    heading_error = wrap_angle(desired_heading - robot.btheta)
-
-    # --- baseline: turn toward the goal, drive faster when well aligned ---
-    w = 1.6 * heading_error
-    alignment = max(0.0, np.cos(heading_error))
-    v = config.MAX_LINEAR_SPEED_MPS * alignment
-
-    # --- reactive avoidance from the most recent scan ---
-    if ranges is not None:
-        rel = wrap_angle(angles - robot.btheta)
-
-        # BRAKING CONE: deliberately NARROW (+/- 25 deg).
-        # An earlier version used +/- 55 deg and the robot braked for the
-        # side walls of every corridor, chattering and burning ~80% of its
-        # energy on turning. Keep this cone tight.
-        cone = np.abs(rel) < np.deg2rad(25)
-        d_front = ranges[cone].min() if cone.any() else config.LIDAR_MAX_RANGE_M
-
-        # SIDE CLEARANCE: proportional repulsion, not bang-bang steering.
-        left = (rel > np.deg2rad(20)) & (rel < np.deg2rad(85))
-        right = (rel < -np.deg2rad(20)) & (rel > -np.deg2rad(85))
-        d_left = ranges[left].min() if left.any() else config.LIDAR_MAX_RANGE_M
-        d_right = ranges[right].min() if right.any() else config.LIDAR_MAX_RANGE_M
-
-        influence = 1.0        # metres: repulsion only inside this radius
-        if d_left < influence:
-            w -= 1.6 * (influence - d_left)
-        if d_right < influence:
-            w += 1.6 * (influence - d_right)
-
-        if d_front < 1.2:
-            v *= float(np.clip((d_front - 0.40) / 0.80, 0.0, 1.0))
-
-        if d_front < 0.50:
-            # genuinely blocked: stop and rotate toward the freer side
-            v = 0.0
-            w = 1.2 * (1.0 if d_left >= d_right else -1.0)
-
-    return v, w, dist_to_goal
+# THE CONTROLLER LIVES IN control.py, AND ONLY THERE.
+# This file used to carry its own copy of choose_velocity, identical in
+# every line that mattered but carrying an extra `valid` argument it never
+# read. Two copies of the steering law is a bug waiting for the moment
+# somebody tunes one of them, and Step 4 puts five detectors on top of
+# whatever the robots do -- diagnosing a controller that behaves one way in
+# this demo and another way everywhere else would be miserable.
+# Removing it left every baseline byte-identical, which is the evidence
+# that the two copies really had not drifted yet.
 
 
 def run(seed=config.DEFAULT_SEED, verbose=True):
@@ -234,7 +193,7 @@ def run(seed=config.DEFAULT_SEED, verbose=True):
         else:
             target = goal
 
-        v, w, _ = choose_velocity(robot, ranges, angles, valid, target)
+        v, w, _ = choose_velocity(robot, ranges, angles, target)
         dist = float(np.hypot(goal[0] - robot.bx, goal[1] - robot.by))
 
         # --- progress-based stuck detection ---

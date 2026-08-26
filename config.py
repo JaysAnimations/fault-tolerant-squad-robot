@@ -400,9 +400,46 @@ SQUAD_START_POSES = [
 ]
 
 # --- radio -----------------------------------------------------------
-COMMS_RANGE_M = 25.0          # beyond this, robots cannot hear each other.
-                              # Steel vessels and cable trays are what makes
-                              # this short in a real plant.
+# CHANGED 25.0 -> 35.0, DERIVED FROM THE SWEEP. This is an experimental
+# parameter and every result moves with it, so here is the measurement
+# (sweep_comms.py, 4 ranges x 3 seeds x 6 conditions):
+#
+#   range   in contact   detected   control FP   duration   energy
+#    15 m      43.3 %      11/15         4         543 s    10650 J
+#    25 m      68.8 %      13/15         1         502 s     9782 J
+#    35 m      89.8 %      13/15         2         434 s     8662 J
+#    50 m      98.5 %      14/15         3         407 s     8388 J
+#
+# WHY 35 m. The deciding column is "in contact", because Step 5 quarantines
+# a robot only when two robots independently agree, and two robots that are
+# rarely in contact can never compare notes. At 25 m that failed in
+# practice, not just in principle: on seed 42 only one healthy robot ever
+# accumulated enough shared ground to judge the faulty one at all, so the
+# corroboration never arrived and recovery could not fire. At 35 m both
+# healthy robots reach a verdict.
+#
+# It is not free and it is not a fudge. Duration and energy both IMPROVE
+# (434 s and 8662 J against 502 s and 9782 J), because robots that can hear
+# each other duplicate less work -- the longer radio pays for itself in
+# mission cost. What it costs is false positives, which climb from 1 to 2
+# on the healthy controls: more contact means more opportunity to accuse.
+#
+# WHY NOT 50 m. It buys 98.5 % contact, which is very nearly a fully
+# connected squad -- and a fully connected squad is not the system this
+# project claims to have built. The site diagonal is 97 m, so at 50 m
+# almost every pair is always in range and "range-limited, decentralised"
+# stops meaning anything. 35 m keeps roughly a tenth of the mission out of
+# contact, which is enough for partial connectivity to remain a real
+# condition the recovery mechanism has to survive.
+COMMS_RANGE_M = 35.0
+
+# Ranges compared by sweep_comms.py. The baseline above has to be argued
+# for, not picked: Step 4 measured healthy robots spending 36-87 % of a
+# mission unable to hear each other at 25 m, and quarantine in Step 5
+# needs TWO robots to corroborate an accusation. Two robots that are out
+# of contact two thirds of the time cannot corroborate anything, so the
+# range determines whether the graded contribution is demonstrable at all.
+COMMS_RANGE_SWEEP_M = (15.0, 25.0, 35.0, 50.0)
 COMMS_PACKET_LOSS_PROB = 0.05  # an in-range message still fails 5 % of the
                                # time. Without this, comms would be a
                                # perfect channel and the comms-loss fault
@@ -429,6 +466,18 @@ COMMS_EXCHANGE_EVERY_N_STEPS = 200   # how often a robot offers its map
 # block those six points for the rest of the mission.
 CLAIM_REFRESH_EVERY_N_STEPS = 100
 CLAIM_TIMEOUT_STEPS = 400      # 40 s without a refresh and the claim lapses
+
+# When a robot gives up on a point it says so, and the others take its word
+# for it -- unless they are MUCH closer than it was. This is the fraction:
+# a robot only re-attempts an abandoned point if its own cost is below this
+# multiple of the cost the robot that failed had.
+#
+# 0.5 means "at least twice as close". Set it to 0 and a failure is treated
+# as final for everybody, which is unsafe -- a robot can fail for reasons
+# that are about where it happened to be standing rather than about the
+# point. Set it to 1.0 and everyone re-attempts everything, which is the
+# behaviour that made three robots slower than one on seed 2024.
+GIVE_UP_OVERRIDE_FRACTION = 0.5
 
 # End the round when the whole squad has been unable to take on any work
 # for this long. Points still open at that moment are unreachable as far
@@ -465,4 +514,378 @@ SQUAD_ESCAPE_TURN_RPS = 0.6             # turn while reversing, so a second
 # Logged so a mission can be replayed as video later without re-running
 # the simulation. Kept deliberately thin: one sample per robot per second.
 TRACE_EVERY_N_STEPS = 25
+
+
+# =====================================================================
+# 13. FAULT INJECTION  (Step 3)
+# =====================================================================
+# Five ways a robot can fail. They are implemented GENERICALLY -- the code
+# knows "sensor degradation", not "condensate on the sensor window". The
+# industrial cause of each goes in the write-up, and the translation table
+# in CLAUDE.md is the bridge between the two. Keeping the causes out of the
+# variable names is deliberate: the mechanism is what we simulate, and the
+# mechanism is what we can defend.
+#
+# NOTHING HERE DETECTS ANYTHING. Step 3 is only about breaking a robot on
+# purpose and being able to see the mission get worse. Detection is Step 4
+# and recovery is Step 5; conflating them makes it impossible to report how
+# long detection took, because the answer would be "instantly, we cheated".
+
+# Which robot breaks, when, and how. Each entry is
+#     (robot_id, step, fault_name)
+# so a fault is addressable by robot AND by time, which is what the paired
+# experimental design needs: seed 7 in C2 and C3 must break the same robot
+# at the same instant, and only the response may differ.
+#
+# Empty by default. Conditions C0 and C1 inject no faults at all.
+FAULT_INJECTIONS = []
+
+FAULT_TYPES = (
+    "sensor_degradation",   # noisy, short-sighted, dropping returns
+    "wrong_position",       # believes it is somewhere it is not
+    "comms_loss",           # radio dead, still drives and maps
+    "immobilised",          # motors dead, still senses and relays
+    "battery_drain",        # burns charge far faster than its work justifies
+)
+
+# --- sensor degradation ----------------------------------------------
+# Feeds straight into the parameters sensors.py already accepts. Chosen so
+# the damage is unmistakable without making the sensor useless: at 0.30 m
+# noise a wall lands three cells either side of itself, which smears the
+# map without erasing it.
+FAULT_SENSOR_NOISE_STD_M = 0.30     # healthy is 0.02
+FAULT_SENSOR_RANGE_SCALE = 0.45     # 8.0 m of reach becomes 3.6 m
+FAULT_SENSOR_DROPOUT_PROB = 0.35    # a third of beams return nothing
+
+# --- wrong position (the Byzantine one) -------------------------------
+# Applied to the robot's BELIEVED pose, never to its sensor readings. That
+# distinction is the whole point of this fault and it is worth being able
+# to state at the defence: the robot's readings stay perfectly good and its
+# map stays internally consistent, so nothing about it looks broken from
+# the inside. It is simply drawing a correct map in the wrong place, and
+# the only way to catch that is to compare it against robots that are not.
+#
+# 6.0 m is exactly the pipe-rack column spacing. The fault therefore models
+# the real failure it is named after: the robot matches its scan to rack
+# bay N+1 instead of bay N, because the two are geometrically identical.
+# That is why the facility has 11 evenly spaced columns in the first place.
+FAULT_POSE_OFFSET_M = (6.0, 0.0)
+FAULT_POSE_OFFSET_RAD = 0.0         # pure translation. A heading error can
+                                    # be added here, but one clean bay of
+                                    # displacement is the clearer story.
+
+# --- rapid battery drain ----------------------------------------------
+# Multiplies every joule the robot spends. It does not change what the
+# robot DOES, only how fast the charge disappears -- which is what makes it
+# the one fault that can be caught before it takes effect, by comparing
+# drain against work done. That is Step 4's problem, not this file's.
+#
+# WHY THE NUMBER IS THIS LARGE. An inspection round is cheap next to the
+# battery: a squad robot finishes on about 92 % charge, having spent some
+# 2,500 J of 33,000 J. A 6x drain therefore does nothing at all -- it ends
+# the round on 67 % instead of 92 % and the mission is unchanged, which is
+# a fault that cannot be observed and so cannot be recovered from either.
+# To kill a robot part-way through a round the multiplier has to exceed
+# roughly 33,000 / 2,500, and it has to do it on the fraction of the round
+# that remains after the fault fires. 25x kills it with about a third of
+# its assignment still outstanding, which is the case Step 5 must handle.
+#
+# If the energy coefficients change when the hardware measurements arrive,
+# this number has to be revisited -- it is a ratio against them, not an
+# independent quantity.
+FAULT_BATTERY_DRAIN_MULTIPLIER = 25.0
+
+# When demo_faults.py injects a fault, it does so here: far enough in that
+# the squad is spread out and working, early enough that the damage has
+# time to show.
+FAULT_DEMO_STEP = 1200
+FAULT_DEMO_ROBOT = 1
+
+
+# =====================================================================
+# 14. FAULT DETECTION  (Step 4)
+# =====================================================================
+# One detector per fault. Every one of them runs on a PEER's evidence, not
+# on the robot itself: a robot cannot be trusted to notice that it is the
+# broken one, and the wrong-position fault proves it -- that robot's own
+# readings are perfect and its map is internally consistent.
+#
+# Detection only. Nothing here quarantines, rolls back or reallocates;
+# that is Step 5. Keeping them apart is what makes detection latency a
+# number we can report rather than an assumption.
+
+# --- heartbeats -------------------------------------------------------
+# How often a robot describes itself to whoever is listening. Every 5 s.
+# Faster costs comms energy for little gain; slower coarsens every latency
+# we report, since a fault cannot be noticed before the next heartbeat.
+HEARTBEAT_EVERY_N_STEPS = 50
+COMMS_HEARTBEAT_PACKET_KB = 0.2    # a pose, two energies, four counters
+
+# --- how often the detectors run --------------------------------------
+# There is no point checking faster than the evidence arrives. Heartbeats
+# come every 50 steps, so running the cheap detectors every 25 costs
+# nothing and never delays a finding by more than 2.5 s.
+#
+# The Byzantine check is different and has to be throttled hard. It
+# reconstructs two full 440,000-cell beliefs and compares them, per peer,
+# and running that every step made an 18-run measurement take over forty
+# minutes -- the kind of 3x-slower change CLAUDE.md says to treat as a
+# problem rather than a detail. Every 100 steps costs 1/100th of that and
+# coarsens the reported latency by at most 10 s, which is nothing beside
+# the ~170 s this fault takes to become visible at all.
+DETECTOR_EVERY_N_STEPS = 25
+BYZANTINE_CHECK_EVERY_N_STEPS = 100
+
+
+# =====================================================================
+# 15. RECOVERY  (Step 5)
+# =====================================================================
+# What the squad DOES about a robot it has decided is faulty. Set
+# RECOVERY_ENABLED = False for condition C2, the naive baseline that
+# detects nothing and acts on nothing.
+
+RECOVERY_ENABLED = True
+
+# TWO ACCUSERS BEFORE ANYBODY IS QUARANTINED. NEVER ONE.
+#
+# This is the most important number in this section and it is not a
+# tuning parameter. A robot whose radio has died hears silence from
+# everybody and concludes that everybody has failed -- and from its own
+# evidence that inference is *correct*. Step 4 measured it happening. Act
+# on a single accusation and the one genuinely broken robot quarantines
+# the two healthy ones.
+#
+# Step 4 also measured the Byzantine margin as thin enough that a single
+# map comparison is not safe evidence on its own. Requiring corroboration
+# from an independent robot is what makes an accusation actionable, and it
+# is the whole reason the squad has three robots rather than two.
+RECOVERY_MIN_ACCUSERS = 2
+
+# How much a degraded robot's map is still worth. NOT zero: a noisy sensor
+# still sees walls, it just sees them badly, and throwing the data away
+# entirely loses real coverage. Down-weighting is the proportionate
+# response and log-odds makes it a multiplication.
+RECOVERY_SENSOR_TRUST = 0.25
+
+COMMS_SUSPICION_PACKET_KB = 0.05   # a suspect id and a fault name
+
+# --- comms loss, and the trap it sets ---------------------------------
+# A healthy robot behind a storage tank goes quiet exactly like a failed
+# one. Silence is only evidence when the robot SHOULD have been heard.
+#
+# So each robot predicts where its peers are, from the last pose they
+# broadcast plus how far they could possibly have travelled since. If the
+# CLOSEST the peer could now be is still beyond COMMS_RANGE_M, silence is
+# expected and no timeout runs.
+#
+# That prediction decays: MAX_LINEAR_SPEED_MPS times elapsed time grows
+# without limit, so after long enough the peer could be anywhere and the
+# estimate justifies nothing. Past PEER_POSITION_DECAY_S we stop trusting
+# it and fall back to the hard timeout, which is deliberately long.
+COMMS_SILENCE_TIMEOUT_S = 25.0       # silence from a peer that should be
+                                     # in range -- five missed heartbeats
+PEER_POSITION_DECAY_S = 60.0         # after this, a position estimate is
+                                     # too stale to say anything, and the
+                                     # hard timeout takes over
+
+# The conservative backstop: silence from anyone, wherever we think they
+# are. MEASURED, not chosen. On healthy runs a pair of robots stays
+# genuinely out of radio contact for as long as 678 s (seed 2024) -- they
+# spend 36-87 % of a mission unable to hear each other, because a 25 m
+# radio on an 80 x 55 m site is a short radio. Any hard timeout below that
+# accuses healthy robots, and false-positive rate is a reported number.
+#
+# At 900 s this rarely fires inside a mission, and that is the honest
+# position: a robot that has been beyond the horizon for the whole round
+# genuinely cannot be told apart from one that has failed. The detector
+# that does the real work is the gated short timeout, which fires when a
+# peer is predicted to be back within earshot and still says nothing.
+COMMS_SILENCE_HARD_TIMEOUT_S = 900.0
+
+# How far inside the radio range a peer must be PREDICTED to be before its
+# silence counts as evidence. Prediction is dead reckoning on somebody
+# else's behalf and it is wrong by metres, so judging at exactly the range
+# boundary turns that error straight into false accusations -- every one
+# of the first batch read "predicted 25.0 m away", which is the boundary
+# to the centimetre.
+COMMS_PREDICTION_MARGIN_M = 5.0
+
+# ...and the margin GROWS with the length of the silence, because the
+# prediction gets worse the longer we have been guessing. A peer is
+# predicted along the straight line to the point it announced, but it
+# drives a real route that detours round buildings, so it is usually
+# somewhere short of where we put it. On seed 42 that placed a healthy
+# robot at its destination 20 m away -- comfortably in range by a fixed
+# margin -- while it was really still behind the store and out of earshot.
+#
+# Half the top speed, as a per-second allowance for the peer being
+# somewhere other than on our predicted track. Combined with the decay
+# cut-off this leaves a usable window: silence counts as evidence between
+# 25 s and 60 s, and only from a peer predicted well inside range.
+PEER_PREDICTION_DRIFT_MPS = 0.3
+
+# Assumed peer speed when we have only one heartbeat and cannot measure
+# its ground speed. A fraction of the maximum, because a robot that has
+# declared a destination is usually driving toward it. Assuming it stayed
+# put instead is the pessimistic choice here: it predicts the peer is
+# still nearby, which is what manufactures a false accusation.
+PEER_PREDICTION_SPEED_FRACTION = 0.8
+
+# --- sensor degradation -----------------------------------------------
+# MEASURED, and the measurement changed the design. Over a full mission
+# the victim robot's own reports were:
+#
+#                        healthy                degraded
+#   valid-return ratio   0.35-0.96, med 0.62    0.04-0.96, med 0.27
+#   range variance       1.5-10.2,  med 6.8     0.1-10.2,  med 0.8
+#
+# Two things to notice. The ranges overlap almost entirely, so NEITHER
+# channel discriminates on its own -- a healthy robot in open ground gets
+# few returns too, because there is nothing out there to hit. And the
+# variance moves DOWNWARD, not up: losing range squashes every reading
+# toward the same short cap. A threshold looking for high variance would
+# have been the wrong way round.
+#
+# So the test is the conjunction: few returns AND uniform ranges, which
+# open ground does not produce, plus persistence across several reports.
+# Tightened after the first pass produced false positives: healthy robots
+# reached valid=0.34 with variance=2.33 for three reports running, which
+# the looser pair (0.45 / 2.5) convicted. The degraded robot sits at
+# valid 0.25-0.26 with variance 0.51-0.79, so there is room below the
+# healthy floor -- but not much, and the variance channel is doing most of
+# the discriminating.
+SENSOR_VALID_RATIO_MIN = 0.30
+SENSOR_RANGE_VARIANCE_MIN = 1.5
+SENSOR_MIN_HEARTBEATS = 3            # three bad reports running, so one
+                                     # awkward corner is not an accusation
+
+# --- wrong position ---------------------------------------------------
+# THE ONE THAT NEEDS THREE ROBOTS. A pairwise disagreement tells you that
+# one of the two is wrong, not which. With a third robot the odd one out
+# is the one that disagrees with BOTH of the others while they agree with
+# each other.
+#
+# Compared over each robot's OWN observations, never the merged map --
+# merging puts the faulty robot's data inside everyone else's before any
+# comparison can run, and Session 6 measured the merged maps *converging*
+# under this fault. See CLAUDE.md.
+# MEASURED AS A RATE, NOT A COUNT, and that change is what made the
+# detector work. Conflict in raw cells does not separate the conditions at
+# all -- healthy pairs produced 62 to 540 conflicting cells and a displaced
+# robot produced 115 to 812, straight through each other. The overlap
+# between two robots' territories varies by a factor of two between pairs,
+# so a count measures how much ground they happen to share as much as it
+# measures how much they disagree about it.
+#
+# As a fraction of the cells both have actually observed (seed 42):
+#     healthy pairs        0.21 - 1.17 %
+#     displaced robot      1.78 - 1.97 %   (the pairs involving the victim)
+#     the other pair       0.20 - 0.22 %   (still agreeing with each other)
+#
+# Healthy conflict is never zero: two robots integrate the same wall at
+# their own drifted poses, so they disagree about its edges. That ~1 % is
+# the noise floor the fault has to clear, and it is why Session 2 reduced
+# odometry drift -- at the old drift this detector would have no signal at
+# all.
+# Tracked over whole missions, the two distributions very nearly touch:
+#
+#     healthy, seed 42     up to 1.15 %
+#     healthy, seed 2024   up to 1.51 %      <-- the ceiling
+#     displaced robot      1.69 % upward, reaching 2.01 %
+#
+# THE MARGIN IS THIN AND THAT IS THE RESULT, not a tuning problem. Seed
+# 2024 is a long, collision-heavy run, and healthy odometry drift over 800 s
+# produces very nearly as much cross-agent conflict as displacing a robot
+# by a whole pipe-rack bay. Session 2 predicted exactly this when it cut
+# the drift constants: "drift in healthy robots is the noise floor for the
+# cross-agent Byzantine detector." This is that floor, measured.
+#
+# Consequences worth stating in Chapter 4: a smaller displacement than 6 m
+# would not be separable at all, and Step 5 should require corroboration
+# from more than one robot before quarantining anybody.
+# NORMALISED PER RUN, WHICH IS WHAT MADE THIS DETECTOR WORK.
+# Absolute thresholds cannot separate the two conditions, because each
+# seed has its own drift level: seed 2024's healthy squad sits at 1.4-1.5 %
+# conflict, which is higher than seed 42's squad manages WITH a robot
+# displaced by a whole pipe-rack bay. A fixed number is asking the wrong
+# question.
+#
+# The right question is comparative, and every robot can already answer it
+# alone. A robot's ledger holds all three contributions -- its own and both
+# peers' -- so it can compute all three pairwise conflict rates without
+# sending a single extra message. Then:
+#
+#     is the suspect's mean disagreement with the other two much larger
+#     than the disagreement between those two?
+#
+# That divides this run's drift out of the comparison. Measured over three
+# seeds, end of mission:
+#
+#     healthy, above the floor     ratio 0.93 - 1.08
+#     displaced robot              ratio 1.66 - 5.74
+#     a faulty robot judging others      0.19 - 1.23
+#
+# The last line matters: a displaced robot disagrees with BOTH peers, so
+# its own baseline is high and its ratios stay low. It accuses nobody,
+# which is the correct behaviour and falls out of the arithmetic rather
+# than having to be special-cased.
+BYZANTINE_RATIO = 1.4                # between the healthy ceiling (1.08)
+                                     # and the faulty floor (1.66)
+BYZANTINE_MIN_MEAN_RATE = 0.008      # ...but only once the disagreement is
+                                     # big enough to mean anything. A
+                                     # healthy pair on seed 7 reached a
+                                     # ratio of 2.23 on a mean disagreement
+                                     # of 0.29 % -- a ratio between two
+                                     # negligible numbers is noise, not
+                                     # evidence.
+
+# The reference pair must have a measurable disagreement of its own before
+# it can be used as a yardstick. Every false positive in the first pass
+# divided by a baseline of 0.07-0.08 % -- two robots agreeing almost
+# perfectly because they had not yet covered enough common ground for
+# their agreement to mean anything, which makes any ratio against it
+# enormous. Every true detection had a baseline of 0.22 % or more.
+BYZANTINE_MIN_BASELINE_RATE = 0.0015
+BYZANTINE_MIN_OVERLAP_CELLS = 15000  # ~150 m2 of genuinely shared ground.
+                                     # Below this the rate is a small-sample
+                                     # artefact: control runs convicted
+                                     # healthy robots 10 s into the mission,
+                                     # on an overlap of a few hundred cells
+                                     # at the fringe of both sensors.
+BYZANTINE_MIN_CHECKS = 2             # sustained across two checks, 20 s
+                                     # apart. Cheap insurance against a
+                                     # single unlucky sample.
+
+# --- immobilised ------------------------------------------------------
+# Asking for motion and not moving. Both odometers are in the heartbeat,
+# so a peer compares the commanded distance against the achieved one.
+IMMOBILE_COMMANDED_M = 1.5           # must have asked for at least this
+                                     # much WHEEL travel (distance plus
+                                     # rotation converted at the radius)
+IMMOBILE_ACHIEVED_FRACTION = 0.10    # and delivered less than this much
+                                     # of it, between two heartbeats
+IMMOBILE_MIN_HEARTBEATS = 3          # for three reports running. A robot
+                                     # grinding against a wall also
+                                     # commands motion it does not achieve,
+                                     # but only until the escape behaviour
+                                     # reverses it out a second or two
+                                     # later. Dead motors do not recover.
+
+# --- battery drain, the predictive one --------------------------------
+# Two separate signals, and the second is the interesting one.
+#
+# 1. RATE. A healthy robot's battery falls by exactly the energy it spends,
+#    so charge_used / energy_spent is 1.0. The fault multiplies it. Above
+#    this ratio something is wrong with the cell, not with the work.
+BATTERY_DRAIN_RATIO_MAX = 2.0
+#
+# 2. PROJECTION. Estimate what the robot's remaining assignment will cost
+#    from what its work has cost so far, and compare against the charge it
+#    has left. If it cannot finish, say so WHILE IT IS STILL ALIVE. Every
+#    other detector here reports a robot that has already failed; this one
+#    reports a robot that is going to, which is the difference between
+#    reallocating its work and losing it.
+BATTERY_PROJECTION_MARGIN = 1.15     # flag when the projected need exceeds
+                                     # the remaining charge by this factor
+BATTERY_MIN_POINTS_DONE = 2          # need some history before projecting
 

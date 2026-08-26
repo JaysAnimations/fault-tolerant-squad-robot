@@ -1,0 +1,180 @@
+"""
+recovery.py
+===========
+What the squad does about a robot it has decided is faulty. Step 5.
+
+THE RESPONSE DEPENDS ON WHAT BROKE
+----------------------------------
+Throwing every suspect robot away wastes good data and good hardware, and
+it is also wrong: three of the five faults leave the robot's map perfectly
+trustworthy. Only one of them justifies erasing anything.
+
+    fault                map trust   rollback   reallocate its work
+    ------------------   ---------   --------   -------------------
+    wrong_position       none        YES        yes
+    sensor_degradation   reduced     no         no
+    comms_loss           unchanged   no         yes
+    immobilised          unchanged   no         yes
+    battery_drain        unchanged   no         yes
+
+Reading that table row by row:
+
+  WRONG POSITION is the only quarantine. The robot's map is internally
+  consistent and globally misplaced, so every cell it ever contributed is
+  wrong and has to come back out. rollback() exists for exactly this.
+
+  SENSOR DEGRADATION is not a lie, it is a poor view. The robot still sees
+  walls, just badly. Down-weight its contributions rather than discarding
+  them, and leave it working -- it can still drive to inspection points,
+  and it can still carry messages.
+
+  COMMS LOSS IS NOT A FAULT IN THE ROBOT AT ALL. It is isolation. That
+  robot is healthy, its map is good, and it is still working through its
+  assignment alone. Quarantining it would throw away perfectly good data
+  for the crime of being behind a storage tank. What the others do is take
+  over the work it can no longer coordinate on, and merge its map when it
+  comes back. Handling this differently from a genuine fault is the piece
+  of engineering judgement the spec singles out.
+
+  IMMOBILISED and BATTERY DRAIN are honest robots that cannot finish. Take
+  their work, keep their maps. The battery case is the one where acting
+  early actually matters, because the detector fires while the robot is
+  still alive.
+
+WHAT THIS FILE WILL NOT DO ON ONE ROBOT'S WORD
+----------------------------------------------
+Nothing. Every response requires RECOVERY_MIN_ACCUSERS independent robots
+to have reached the same conclusion. A robot with a dead radio accuses
+everybody -- correctly, from its own evidence -- and if a single
+accusation were enough, the one broken robot would quarantine the two
+healthy ones and the mission would collapse in the name of fault
+tolerance.
+
+A LIMITATION, STATED RATHER THAN HIDDEN
+---------------------------------------
+The spec asks that a degraded or immobilised robot be kept on as a message
+RELAY. The radio in comms.py is single-hop: a message either reaches a
+robot directly or it does not, and no robot forwards anything. So "keep it
+as a relay" has nothing to attach to here, and what is implemented is the
+part that does: the robot stays in the squad, keeps its claims where
+appropriate, and keeps contributing what it can. Multi-hop forwarding
+would be a genuine addition to the comms model rather than a Step 5
+behaviour.
+"""
+
+import config
+
+
+def response_for(fault_name):
+    """
+    How to react to a corroborated accusation.
+
+    Returns a dict with three keys:
+        trust      what this robot's map contributions are now worth
+        rollback   whether to remove everything it has already contributed
+        reallocate whether to release its claims for somebody else to take
+
+    Read from config at call time rather than baked into a module-level
+    table, so an experiment can change RECOVERY_SENSOR_TRUST without
+    touching this file.
+    """
+    if fault_name == "wrong_position":
+        # The only true quarantine. Its map is wrong everywhere.
+        return {"trust": 0.0, "rollback": True, "reallocate": True}
+
+    if fault_name == "sensor_degradation":
+        # A poor view, not a false one. Keep it working and keep its data,
+        # worth less.
+        return {"trust": config.RECOVERY_SENSOR_TRUST, "rollback": False,
+                "reallocate": False}
+
+    if fault_name in ("comms_loss", "immobilised", "battery_drain"):
+        # Honest robots that cannot finish, or cannot coordinate. Their
+        # maps are as good as anyone's.
+        return {"trust": 1.0, "rollback": False, "reallocate": True}
+
+    raise ValueError(f"no recovery response defined for '{fault_name}'")
+
+
+def corroborated(member):
+    """
+    Which (suspect, fault) pairs enough robots independently agree on.
+
+    Counts this robot's own accusation plus every distinct peer that has
+    reported the same thing. Yields (suspect, fault, accusers).
+
+    Note what is NOT here: any pooling of evidence. Robots exchange
+    conclusions, not observations, and each one reached its own
+    independently. Two robots agreeing is two separate measurements
+    agreeing, which is what makes the corroboration worth anything.
+    """
+    tally = {}
+
+    for suspect, faults in member.detector.accusations.items():
+        for fault in faults:
+            tally.setdefault((suspect, fault), set()).add(member.id)
+
+    for accuser, suspects in member.heard_suspicions.items():
+        for suspect, faults in suspects.items():
+            for fault in faults:
+                tally.setdefault((suspect, fault), set()).add(accuser)
+
+    for (suspect, fault), accusers in tally.items():
+        if suspect == member.id:
+            continue          # nobody acts on accusations against itself
+        if len(accusers) >= config.RECOVERY_MIN_ACCUSERS:
+            yield suspect, fault, sorted(accusers)
+
+
+def consider(member, points, step):
+    """
+    Act on anything the squad now agrees about.
+
+    Called once per detector tick. Every action is idempotent and taken at
+    most once per (suspect, fault), so this is safe to call repeatedly.
+    Returns the actions taken this step, for the report.
+    """
+    if not member.robot.alive:
+        return []
+
+    taken = []
+    for suspect, fault, accusers in corroborated(member):
+        if (suspect, fault) in member.recovery_applied:
+            continue
+        member.recovery_applied.add((suspect, fault))
+
+        response = response_for(fault)
+        restored = 0
+
+        # --- stop believing it, to whatever degree is warranted -------
+        member.trust[suspect] = response["trust"]
+
+        # --- and take back what it already told us --------------------
+        if response["rollback"]:
+            before = member.grid.classified()
+            member.grid.rollback(suspect)
+            after = member.grid.classified()
+            restored = int((before != after).sum())
+            member.quarantined.add(suspect)
+
+        # --- release its work for somebody else -----------------------
+        released = []
+        if response["reallocate"]:
+            member.ignore_claims_from.add(suspect)
+            for index, claim in list(member.claims.items()):
+                if claim["by"] == suspect:
+                    member.claims.pop(index, None)
+                    released.append(index)
+            member.released.update(released)
+
+        action = {"step": step, "by": member.id, "suspect": suspect,
+                  "fault": fault, "accusers": accusers,
+                  "trust": response["trust"],
+                  "rolled_back": response["rollback"],
+                  "cells_restored": restored,
+                  "claims_released": released,
+                  "outstanding": sum(1 for p in points if not p.visited)}
+        member.recovery_actions.append(action)
+        taken.append(action)
+
+    return taken
