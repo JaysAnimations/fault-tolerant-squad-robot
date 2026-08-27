@@ -47,7 +47,7 @@ from matplotlib.patches import Rectangle, Patch
 import config
 from environment import Facility
 from inspection import (generate_inspection_points, reachability_planner,
-                        points_by_zone)
+                        points_by_zone, partition_points)
 from deviations import inject_deviations, update_detection, detection_summary
 from comms import Radio
 from mapping import OccupancyGrid
@@ -105,6 +105,15 @@ def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
     squad = [SquadMember(i, pose, facility, seed, use_prior, use_auction,
                          reallocation)
              for i, pose in enumerate(poses)]
+
+    # The round is divided once, from the seed alone, so every condition
+    # starts from the same assignment and differs only in what it does
+    # when a robot fails.
+    lanes = partition_points(points, len(squad), seed)
+    lane_of = {i: set(lane) for i, lane in enumerate(lanes)}
+    for member, lane in zip(squad, lanes):
+        member.assigned = set(lane)
+        member.lane_of = {k: set(v) for k, v in lane_of.items()}
     radio = Radio(np.random.default_rng([seed, config.RNG_STREAM_COMMS]))
     trace = TrajectoryTrace()
     injector = FaultInjector(faults)

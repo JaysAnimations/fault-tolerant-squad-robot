@@ -328,7 +328,7 @@ class FaultDetector:
     # =================================================================
     # Detector 2 of 5: wrong position -- the one that needs three robots
     # =================================================================
-    def check_wrong_position(self, grid, peer_ids, step):
+    def check_wrong_position(self, grid, peer_ids, step, progress=1.0):
         """
         A robot drawing a correct map in the wrong place.
 
@@ -354,6 +354,12 @@ class FaultDetector:
         ids = sorted({self.owner_id} | set(peer_ids))
         if len(ids) < 3:
             return          # no third opinion available, so no vote
+
+        # Too early in the round to be destroying anybody's work. Two
+        # robots that have barely been to the same places disagree about a
+        # handful of cells, and a ratio between two tiny numbers is noise.
+        if progress < config.BYZANTINE_MIN_PROGRESS:
+            return
 
         # All three pairwise rates, entirely from this robot's own ledger.
         # Comparing the two PEERS against each other is the part that makes

@@ -79,19 +79,28 @@ def response_for(fault_name):
     touching this file.
     """
     if fault_name == "wrong_position":
-        # The only true quarantine. Its map is wrong everywhere.
-        return {"trust": 0.0, "rollback": True, "reallocate": True}
+        # The only true quarantine, and the ONLY fault that puts completed
+        # inspections in doubt. This robot was not where it thought it was,
+        # so neither its map nor its "inspected" reports mean anything.
+        return {"trust": 0.0, "rollback": True, "reallocate": True,
+                "invalidate": True}
 
     if fault_name == "sensor_degradation":
         # A poor view, not a false one. Keep it working and keep its data,
         # worth less.
         return {"trust": config.RECOVERY_SENSOR_TRUST, "rollback": False,
-                "reallocate": False}
+                "reallocate": False, "invalidate": False}
 
     if fault_name in ("comms_loss", "immobilised", "battery_drain"):
         # Honest robots that cannot finish, or cannot coordinate. Their
-        # maps are as good as anyone's.
-        return {"trust": 1.0, "rollback": False, "reallocate": True}
+        # maps are as good as anyone's -- AND SO ARE THEIR COMPLETED
+        # INSPECTIONS. A robot with a dead radio, stuck wheels or a flat
+        # battery was exactly where it thought it was when it read that
+        # gauge. Discarding that work would be throwing away verified
+        # inspections to punish a robot for a fault that never touched
+        # them.
+        return {"trust": 1.0, "rollback": False, "reallocate": True,
+                "invalidate": False}
 
     raise ValueError(f"no recovery response defined for '{fault_name}'")
 
@@ -209,6 +218,14 @@ def consider(member, points, step):
                     member.claims.pop(index, None)
                     released.append(index)
             member.released.update(released)
+
+            # ...AND TAKE OVER ITS LANE. Under a static partition this is
+            # what reallocation actually means: the failed robot's share of
+            # the round becomes everybody else's to bid for, rather than
+            # sitting unvisited because its owner cannot move. Releasing
+            # only the one point it happened to be driving to would leave
+            # the other twelve stranded.
+            member.extra.update(member.lane_of.get(suspect, set()))
             did.append("released")
 
         # --- trust its map less: cheap while the data is kept ---------
@@ -231,8 +248,14 @@ def consider(member, points, step):
             after = member.grid.classified()
             restored = int((before != after).sum())
             member.quarantined.add(suspect)
-            invalidated = _invalidate_completions(member, suspect, points)
             did.append("quarantined")
+            # Only a displaced robot's completions are in doubt. Gated
+            # explicitly rather than left to fall out of `rollback` being
+            # true, so that adding a future fault that rolls back the map
+            # cannot silently start discarding verified inspections too.
+            if response["invalidate"]:
+                invalidated = _invalidate_completions(member, suspect,
+                                                      points)
 
         if not did:
             continue

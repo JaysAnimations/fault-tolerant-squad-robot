@@ -175,6 +175,7 @@ RNG_STREAM_INSPECTION = 1   # inspection point positions
 RNG_STREAM_DEVIATIONS = 2   # which deviations, and where
 RNG_STREAM_COMMS = 3        # radio packet loss
 RNG_STREAM_FAULTS = 4       # which fault a seed gets in the suite
+RNG_STREAM_PARTITION = 5    # how the round is divided between robots
 # In the squad, each robot draws from [seed, RNG_STREAM_ROBOT, robot_id],
 # so robot 1's sensor noise does not shift when robot 0 happens to drive
 # somewhere else. Without that, changing one robot's behaviour would
@@ -523,6 +524,33 @@ CLAIM_TIMEOUT_STEPS = 400      # 40 s without a refresh and the claim lapses
 # demonstrator, where fault tolerance off means the surviving robot
 # finishes its own lane and stops.
 REALLOCATION_ENABLED = True
+
+# --- the round is divided up once, before anybody moves ---------------
+# Every condition starts from the SAME assignment, computed from the seed
+# alone. What differs between conditions is only what happens to that
+# assignment when a robot fails.
+#
+# WHY A STATIC PARTITION REPLACED PERMANENT CLAIMS. Permanent claims were
+# meant to make the naive condition naive, and they did something else:
+# they starved the faulty robot of work. A displaced robot claimed one
+# point, failed to reach it, kept the claim and idled for the rest of the
+# round -- so it never filed a single false inspection and C2 scored a
+# clean 39 believed / 39 truly. The baseline was being protected from the
+# fault by an accident of the bidding rule.
+#
+# With a fixed assignment the displaced robot attempts all thirteen of its
+# own points and files thirteen inspections it never performed, which is
+# the damage the naive condition is supposed to take.
+#
+# It also removes a confound: under permanent claims the conditions
+# diverged from step 0, because the bidding rule differed from step 0. Now
+# they are identical until the fault fires.
+#
+# And it is the conventional system rather than a strawman -- Chapter 2's
+# ANYmal deployment runs pre-defined inspection rounds, not a live
+# auction. Objective iii is task REALLOCATION, so the baseline should be
+# an allocation that is never revisited.
+PARTITION_ITERATIONS = 12     # Lloyd iterations; converges long before this
 
 # When a robot gives up on a point it says so, and the others take its word
 # for it -- unless they are MUCH closer than it was. This is the fraction:
@@ -954,15 +982,39 @@ BYZANTINE_MIN_MEAN_RATE = 0.008      # ...but only once the disagreement is
 # their agreement to mean anything, which makes any ratio against it
 # enormous. Every true detection had a baseline of 0.22 % or more.
 BYZANTINE_MIN_BASELINE_RATE = 0.0015
-BYZANTINE_MIN_OVERLAP_CELLS = 15000  # ~150 m2 of genuinely shared ground.
+BYZANTINE_MIN_OVERLAP_CELLS = 30000  # ~300 m2 of genuinely shared ground.
+                                     # Raised from 15,000 in Session 11.
                                      # Below this the rate is a small-sample
                                      # artefact: control runs convicted
                                      # healthy robots 10 s into the mission,
                                      # on an overlap of a few hundred cells
                                      # at the fringe of both sensors.
-BYZANTINE_MIN_CHECKS = 2             # sustained across two checks, 20 s
-                                     # apart. Cheap insurance against a
-                                     # single unlucky sample.
+
+# THESE THREE GATES EXIST BECAUSE THE DETECTOR WAS OVERFITTED.
+# Tuned on three seeds it scored 3/3 with no false positives, and on the
+# wider sample it quarantined the wrong robot in 5 of 15 runs and cost a
+# healthy squad 14 good inspections. Three seeds is not a sample, it is an
+# anecdote, and every number downstream inherited the error.
+#
+# All three ask the same question in different ways: is this disagreement
+# large enough, sustained enough, and measured on enough evidence to be
+# worth destroying a robot's work over?
+BYZANTINE_MIN_CHECKS = 5             # sustained across five checks, 50 s.
+                                     # Transient drift does not survive
+                                     # that; a 6 m displacement does,
+                                     # because it does not go away. Costs
+                                     # detection latency, which is the
+                                     # right thing to spend here.
+BYZANTINE_MIN_PROGRESS = 0.25        # ...and not before a quarter of the
+                                     # round is done. Early on two robots
+                                     # have covered almost no common
+                                     # ground, so the conflict rate is a
+                                     # ratio between two tiny numbers.
+                                     # Measured as the fraction of points
+                                     # the accuser believes are finished --
+                                     # a robot knows that about itself,
+                                     # whereas it cannot know how long the
+                                     # mission will turn out to be.
 
 # --- immobilised ------------------------------------------------------
 # Asking for motion and not moving. Both odometers are in the heartbeat,

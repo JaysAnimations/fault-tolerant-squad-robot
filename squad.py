@@ -186,6 +186,17 @@ class SquadMember:
         self.quarantined = set()      # peers whose contributions we removed
         self.ignore_claims_from = set()   # peers whose work we have taken
         self.released = set()         # points freed for re-auction
+        # Its lane: the points it was given at mission start, and any it
+        # has since picked up from a robot the squad wrote off. `assigned`
+        # never changes; `extra` only grows, and only when reallocation is
+        # enabled.
+        self.assigned = set()
+        self.extra = set()
+        # The whole division of the round, robot id -> its lane. Issued by
+        # the operator along with the point list, exactly as the drawings
+        # are, so every robot knows whose lane is whose. It is a plan, not
+        # a live shared state -- nothing writes to it during the mission.
+        self.lane_of = {}
         self.recovery_actions = []
         self.recovery_applied = set()  # (suspect, fault) already acted on
         self._announced = set()       # suspicions already broadcast
@@ -472,7 +483,9 @@ class SquadMember:
         # Throttled separately: this one rebuilds and compares two
         # full-size beliefs per peer. See BYZANTINE_CHECK_EVERY_N_STEPS.
         if step % config.BYZANTINE_CHECK_EVERY_N_STEPS == 0:
-            self.detector.check_wrong_position(self.grid, peer_ids, step)
+            progress = len(self.done) / max(len(points), 1)
+            self.detector.check_wrong_position(self.grid, peer_ids, step,
+                                               progress)
 
     def act_on_suspicions(self, points, step, radio, squad, enabled=True):
         """
@@ -492,6 +505,32 @@ class SquadMember:
     # =================================================================
     # 3. Bid
     # =================================================================
+    def _candidates(self, points):
+        """
+        Which points this robot is allowed to go for.
+
+        Its own lane, always. Points handed to it because the squad wrote
+        somebody off, if reallocation is enabled. And, once its own lane is
+        finished and reallocation is enabled, whatever is still outstanding
+        anywhere -- a robot with nothing left of its own goes and helps.
+
+        THAT LAST CLAUSE IS THE WHOLE OF C2 vs C5. In the naive condition
+        it is switched off: a robot finishes its lane and stops, and a
+        point belonging to a robot that died is never visited by anybody.
+        That is what a system with no reallocation actually does, and it is
+        what the hardware demonstrator does when fault tolerance is off --
+        the surviving robot finishes its own taped lane and parks.
+        """
+        open_now = [p for p in points
+                    if p.index not in self.done
+                    and p.index not in self.given_up]
+
+        mine = [p for p in open_now
+                if p.index in self.assigned or p.index in self.extra]
+        if mine or not self.reallocation:
+            return mine
+        return open_now
+
     def choose_target(self, points, step, radio, squad):
         """
         Pick the cheapest point nobody else can reach more cheaply, and say
@@ -506,8 +545,7 @@ class SquadMember:
         if self.target is not None or not self.robot.alive:
             return False
 
-        pending = [p for p in points
-                   if p.index not in self.done and p.index not in self.given_up]
+        pending = self._candidates(points)
         if not pending:
             return False
 

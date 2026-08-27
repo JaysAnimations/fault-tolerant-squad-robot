@@ -324,6 +324,70 @@ def generate_inspection_points(facility, seed=config.DEFAULT_SEED,
     return points
 
 
+def partition_points(points, n_robots, seed=config.DEFAULT_SEED):
+    """
+    Divide the round between the robots once, before anybody moves.
+
+    Returns a list of sets of point indices, one per robot.
+
+    SPATIALLY CLUSTERED, because an inspection round is walked, not
+    teleported: a robot given points scattered across the site spends the
+    round driving between them. k-means on the point positions, with the
+    means moved to the centroid of what they own and repeated a dozen
+    times, which is enough for 40 points to settle.
+
+    DETERMINISTIC FROM THE SEED, and from nothing else. The same seed
+    gives the same division in every condition, so C2, C5 and C3 start
+    from an identical assignment and differ only in what they do when a
+    robot fails. That is what makes them a paired comparison rather than
+    three different missions.
+
+    BALANCED AFTERWARDS. Plain k-means on this facility hands one robot
+    the tank farm and another most of the process unit, and a robot with
+    twice its share of the work looks like a fault when it is really an
+    artefact of the layout. So oversized clusters give up their most
+    distant points to the nearest cluster with room -- which keeps the
+    lanes compact while making them comparable.
+    """
+    n = len(points)
+    if n == 0 or n_robots <= 1:
+        return [{p.index for p in points}] + [set() for _ in range(n_robots - 1)]
+
+    rng = np.random.default_rng([seed, config.RNG_STREAM_PARTITION])
+    xy = np.array([[p.x, p.y] for p in points], dtype=float)
+
+    start = rng.choice(n, size=n_robots, replace=False)
+    centres = xy[start].copy()
+    owner = np.zeros(n, dtype=int)
+    for _ in range(config.PARTITION_ITERATIONS):
+        d = np.linalg.norm(xy[:, None, :] - centres[None, :, :], axis=2)
+        owner = np.argmin(d, axis=1)
+        for k in range(n_robots):
+            if (owner == k).any():
+                centres[k] = xy[owner == k].mean(axis=0)
+
+    # --- balance ------------------------------------------------------
+    cap = int(np.ceil(n / n_robots))
+    for _ in range(n):                      # bounded; each pass moves one
+        sizes = [int((owner == k).sum()) for k in range(n_robots)]
+        over = [k for k in range(n_robots) if sizes[k] > cap]
+        under = [k for k in range(n_robots) if sizes[k] < cap]
+        if not over or not under:
+            break
+        k = over[0]
+        mine = np.where(owner == k)[0]
+        # the point this cluster holds least tightly
+        far = mine[int(np.argmax(np.linalg.norm(xy[mine] - centres[k],
+                                                axis=1)))]
+        # ...goes to whichever hungry cluster is nearest to it
+        best = min(under, key=lambda j: float(np.linalg.norm(xy[far]
+                                                             - centres[j])))
+        owner[far] = best
+
+    return [{points[i].index for i in np.where(owner == k)[0]}
+            for k in range(n_robots)]
+
+
 def points_by_zone(points):
     """{zone_code: [InspectionPoint, ...]} -- for reporting per zone."""
     out = {}
