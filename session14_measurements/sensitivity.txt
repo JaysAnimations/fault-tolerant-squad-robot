@@ -1,0 +1,41 @@
+SENSITIVITY ANALYSIS -- results.csv, 174 runs
+Each energy coefficient scaled 0.5x / 1x / 2x independently:
+a factor-of-four range on every one.
+
+ENERGY COMPOSITION AT THE CURRENT COEFFICIENTS
+  energy_drive_j      32.3 %   (E_DRIVE_J_PER_M = 4)
+  energy_turn_j        6.1 %   (E_TURN_J_PER_RAD = 2)
+  energy_sense_j      44.6 %   (P_SENSE_W = 2)
+  energy_compute_j    13.4 %   (P_COMPUTE_W = 0.6)
+  energy_comms_j       3.5 %   (E_COMMS_J_PER_KB = 0.05)
+
+SIGN OF EACH HEADLINE COMPARISON, ACROSS THE FULL SWEEP
+  comparison                                     n     1x mean       t   worst-case over the sweep
+  ----------------------------------------------------------------------------------------------------
+  C3 vs C2   energy/point, all faults           29      -106.1   -2.31   stable; closest P_SENSE_W x0.5 -> -64.0
+  C5 vs C2   energy/point, all faults           29      -104.0   -2.45   stable; closest P_SENSE_W x0.5 -> -63.1
+  C3 vs C4   energy/point, squad vs solo        29      -326.3   -2.07   stable; closest P_SENSE_W x0.5 -> -200.7
+  C1 vs C0   total energy, cost of bad drawings  29       207.3    1.41   stable; closest P_SENSE_W x0.5 -> +149.5
+  C3 vs C2   energy/point, IMMOBILISED           7      -474.0   -4.71   stable; closest P_SENSE_W x0.5 -> -302.4
+  C3 vs C2   energy/point, COMMS LOSS            5        29.8    1.28   stable; closest E_DRIVE_J_PER_M x0.5 -> +19.8
+  C3 vs C2   energy/point, BATTERY DRAIN         6       -11.2   -0.67   stable; closest E_DRIVE_J_PER_M x2.0 -> -5.5
+  C3 vs C2   energy/point, WRONG POSITION        7        32.8    2.37   stable; closest E_DRIVE_J_PER_M x0.5 -> +27.2
+
+C2 -> C5 -> C3 ORDERING ON ENERGY PER POINT
+  at 1x:  C2 292  C5 188  C3 186   monotone
+  holds at every scaling of every coefficient (15 combinations)
+
+BATTERY HEADROOM -- the one feedback path scaling cannot model
+  at x0.5: worst mission uses  34.8 % of one robot's battery
+  at x1.0: worst mission uses  34.9 % of one robot's battery
+  at x2.0: worst mission uses  59.2 % of one robot's battery
+  Below 100 % no robot dies, so no mission would have gone
+  differently and the arithmetic above is exact rather than
+  approximate. battery_drain runs are excluded and are the
+  known exception -- see battery_headroom()'s docstring.
+
+========================================================================
+VERDICT: conclusions stable across a factor-of-four variation
+in every energy coefficient. No headline comparison changes
+sign, and the C2 -> C5 -> C3 ordering is preserved throughout.
+========================================================================

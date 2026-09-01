@@ -1,0 +1,131 @@
+==============================================================================
+STAGE 3 -- THE RE-RUN
+==============================================================================
+  v1 (old behaviour, old coefficients) : 174 rows
+  v2 (new behaviour, new coefficients) : 174 rows
+  C3-old control arm                   : 29 rows
+
+HEADLINE, v2 -- means over 29 seeds
+                           C0       C1       C2       C5       C3       C4
+  truly inspected       39.83    39.55    34.31    36.66    37.10    19.24
+  falsely reported       0.00     0.00     2.21     2.17     2.03     4.86
+  mission success        0.86     0.79     0.38     0.59     0.59     0.28
+  duration s              403      423      870      508      490     1355
+  energy per point        155      163      292      188      186      512
+
+HEADLINE, v1 (Session 13) -- for comparison
+                           C0       C1       C2       C5       C3       C4
+  truly inspected       39.83    39.55    34.00    36.62    37.10    18.48
+  falsely reported       0.00     0.00     2.21     2.17     2.03     4.86
+  mission success        0.86     0.79     0.34     0.55     0.59     0.28
+  duration s              403      423      870      515      500     1341
+  energy per point        206      214      313      244      243      473
+
+==============================================================================
+1. COEFFICIENT EFFECT -- isolated on the non-C3 conditions
+   These 145 rows run identical code in v1 and v2, so every
+   difference here is the coefficient change alone.
+==============================================================================
+
+  DOES ANY NON-ENERGY COLUMN MOVE? (non-C3 rows)
+    145 paired non-C3 rows checked, 18 differ
+      battery_drain        16 rows
+      none                 2 rows
+
+    WHY, AND BOTH REASONS ARE REAL FEEDBACK PATHS:
+    battery_drain -- the coefficients are ~25 % lower, so the
+      drained robot survives longer and the mission that
+      follows is a different mission. Visible directly in
+      robots_alive_at_end going 2 -> 3 on C5_s17 and C5_s18.
+      Energy feeding back through battery exhaustion is the
+      caveat sensitivity.py already flags.
+    none (fault-free) -- C0 and C1 run detect=True and
+      recover=True: they are the false-positive gates, not
+      fault-tolerance-off arms. detection.py's PREDICTIVE
+      battery check projects energy_j forward against
+      remaining charge, so it crosses its threshold at a
+      different STEP under different coefficients. The same
+      false accusation fires (counts are unchanged: 5 across
+      C0+C1 in both datasets) but at a different moment,
+      shifting one claim release and therefore the routing.
+      No reported C0 or C1 mean moves as a result.
+
+  ENERGY, non-C3 rows
+    C0   total     8186 ->     6182 J (-24.5 %)   J/point    206 ->    155 (-24.5 %)
+    C1   total     8413 ->     6389 J (-24.1 %)   J/point    214 ->    163 (-24.0 %)
+    C2   total    10642 ->     9747 J ( -8.4 %)   J/point    313 ->    292 ( -6.8 %)
+    C5   total     9412 ->     7257 J (-22.9 %)   J/point    244 ->    188 (-22.8 %)
+    C4   total     5877 ->     5299 J ( -9.8 %)   J/point    473 ->    512 ( +8.4 %)
+
+==============================================================================
+2. BEHAVIOUR EFFECT -- isolated on C3, both arms new coefficients
+==============================================================================
+  29 paired C3 seeds
+
+  identical on energy/truly/duration/coverage: 28 of 29 seeds
+  seeds that differ: [22]
+    seed 22    energy    7027.2 ->    6647.6   truly 30 -> 30   realloc 0 -> 0
+
+  MEANS, C3 old behaviour vs C3 new behaviour
+    truly inspected        37.10 ->     37.10  (+0.00)
+    falsely reported        2.03 ->      2.03  (+0.00)
+    mission success         0.59 ->      0.59  (+0.00)
+    duration s            491.49 ->    490.26  (-1.23)
+    energy per point      186.44 ->    186.12  (-0.33)
+    points reallocated      0.21 ->      0.17  (-0.03)
+
+==============================================================================
+3. HEADLINE PAIRED COMPARISONS, v2
+==============================================================================
+
+  PAIRED C3 vs C2  (n=29)
+    truly inspected        +2.79   t =  +3.65
+    mission success        +0.21   t =  +2.27
+    duration s           -379.76   t =  -2.70
+    energy per point     -106.05   t =  -2.31
+
+  PAIRED C3 vs C4  (n=29)
+    truly inspected       +17.86   t =  +7.67
+    mission success        +0.31   t =  +3.09
+    duration s           -864.38   t =  -4.05
+    energy per point     -326.24   t =  -2.07
+
+  PAIRED C1 vs C0  (n=29)
+    truly inspected        -0.28   t =  -1.86
+    mission success        -0.07   t =  -1.44
+    duration s            +19.26   t =  +1.48
+    energy per point       +7.41   t =  +1.76
+
+==============================================================================
+4. IMMOBILISED -- does the composition shift strengthen it?
+   Sensing is now ~39 % of the bill instead of ~11.5 %, so energy
+   is far more time-dependent. C2 flails while C3 does not, so
+   the duration gap should now dominate the energy comparison.
+==============================================================================
+
+  v1  (n=7)
+                                 C2         C5         C3
+    truly inspected            29.6       36.9       39.0
+    duration s               2002.3      559.1      483.4
+    energy per point          588.7      245.0      217.7
+    total energy J          16996.7     8927.8     8482.9
+    C3-C2 energy/point -371.0 J  t = -4.54
+
+  v2  (n=7)
+                                 C2         C5         C3
+    truly inspected            29.6       36.9       39.0
+    duration s               2002.3      559.1      483.4
+    energy per point          646.6      201.5      172.7
+    total energy J          18631.6     7334.5     6726.9
+    C3-C2 energy/point -474.0 J  t = -4.71
+
+==============================================================================
+5. ENERGY COMPOSITION -- the thing that matters more than totals
+==============================================================================
+                       v2 share v1 (Session 13)
+  energy_drive_j          32.3 %      66.4 %
+  energy_turn_j            6.1 %       4.8 %
+  energy_sense_j          44.6 %      11.5 %
+  energy_compute_j        13.4 %      17.3 %
+  energy_comms_j           3.5 %           -
+==============================================================================

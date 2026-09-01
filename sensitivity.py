@@ -21,13 +21,31 @@ Session 14 the suite writes five energy columns instead of one total:
 
 Each column is exactly LINEAR in one coefficient and independent of the
 other three. So "what if P_SENSE_W were double?" is answered by doubling
-one column and re-totalling -- no mission has to be simulated again. The
-physical behaviour is unchanged by construction, because none of these
-coefficients feeds back into what a robot decides to do. The one place
-energy does feed back is the battery: a robot that runs flat stops. That
-caveat is stated in the report this script prints rather than hidden,
-because at a mission cost of a few per cent of the battery it does not
-bind, and the script checks that it does not.
+one column and re-totalling -- no mission has to be simulated again.
+
+TWO PLACES WHERE THAT IS NOT QUITE TRUE, both measured in Session 14
+rather than assumed away, and both small:
+
+  1. THE BATTERY. A robot that runs flat stops, and the mission that
+     follows is a different mission. Scaling on paper cannot reproduce
+     that. It binds only on battery_drain runs -- where the 25x drain
+     multiplier is the whole point of the fault -- and battery_headroom()
+     below excludes them and says so. Measured: the new, lower
+     coefficients let the drained robot survive longer, and those
+     missions ran 15-18 % longer with robots_alive_at_end going 2 -> 3 on
+     two runs.
+
+  2. THE PREDICTIVE BATTERY DETECTOR. detection.py projects energy_j
+     forward against remaining charge to warn that a robot will not
+     finish the round. That projection reads the ABSOLUTE energy scale,
+     so it crosses its threshold at a different step when a coefficient
+     moves -- even on a healthy robot with no fault injected. Measured on
+     the fault-free conditions: the same accusations fire (5 across C0
+     and C1 in both datasets) but at different moments, perturbing
+     routing on 2 of 58 rows and moving no reported mean.
+
+Neither invalidates the method. Both are stated because a sensitivity
+analysis whose own assumptions are unexamined is not worth much.
 
 WHAT IT REPORTS. Every headline energy comparison in Chapter 4, evaluated
 at 0.5x, 1x and 2x on each coefficient independently -- a factor of four.
@@ -144,11 +162,21 @@ def t_statistic(diffs):
 # ---------------------------------------------------------------------
 # The comparisons Chapter 4 actually makes
 # ---------------------------------------------------------------------
-# Each is (label, condition_a, condition_b, metric, fault, expected_sign).
-# expected_sign is what the dissertation claims: -1 means "a spends less
-# than b". A run at some scale factor that produces the opposite sign is a
-# conclusion that depends on a coefficient, and this script exists to find
-# exactly those.
+# Each is (label, condition_a, condition_b, metric, fault, claimed_sign).
+#
+# claimed_sign is the direction the dissertation reports, INCLUDING where
+# that direction is unflattering. comms_loss and wrong_position are +1
+# because C3 genuinely costs more per point than C2 on those two faults --
+# both are documented in CLAUDE.md as honest failures, and a sensitivity
+# analysis that quietly encoded them as wins would be checking the wrong
+# claim.
+#
+# TWO DIFFERENT QUESTIONS, AND THEY MUST NOT BE CONFLATED:
+#   1. does the sign of this difference CHANGE as a coefficient is scaled?
+#      That is coefficient dependence, and it is what this script is for.
+#   2. is the sign what the dissertation claims? That is a question about
+#      the claim, not about the coefficients, and a wrong answer here does
+#      not make anything unstable.
 COMPARISONS = [
     ("C3 vs C2   energy/point, all faults", "C3", "C2", per_point, None, -1),
     ("C5 vs C2   energy/point, all faults", "C5", "C2", per_point, None, -1),
@@ -157,12 +185,13 @@ COMPARISONS = [
      "C1", "C0", scaled_total, None, +1),
     ("C3 vs C2   energy/point, IMMOBILISED",
      "C3", "C2", per_point, "immobilised", -1),
+    # C3 costs MORE on these two. Stated as such deliberately.
     ("C3 vs C2   energy/point, COMMS LOSS",
-     "C3", "C2", per_point, "comms_loss", -1),
+     "C3", "C2", per_point, "comms_loss", +1),
     ("C3 vs C2   energy/point, BATTERY DRAIN",
      "C3", "C2", per_point, "battery_drain", -1),
     ("C3 vs C2   energy/point, WRONG POSITION",
-     "C3", "C2", per_point, "wrong_position", -1),
+     "C3", "C2", per_point, "wrong_position", +1),
 ]
 
 
@@ -184,16 +213,39 @@ def ordering_holds(rows, factors):
 def battery_headroom(rows, factors):
     """
     The one place energy DOES feed back on behaviour: a robot that
-    exhausts its battery stops. Scaling a coefficient in analysis cannot
-    reproduce that, so the assumption has to be checked rather than
-    asserted. Reports the worst mission as a fraction of one robot's
-    battery, at this scaling.
+    exhausts its battery stops, and the mission that follows is a
+    different mission. Scaling a coefficient on paper cannot reproduce
+    that, so the assumption this whole method rests on has to be checked
+    rather than asserted.
 
-    Reported per robot: total_energy_j is the squad's bill, and the
-    conditions run three robots except C4.
+    Reports the worst HEALTHY mission as a fraction of one robot's
+    battery. Per robot, because total_energy_j is the squad's bill and
+    every condition but C4 runs three.
+
+    TWO HONEST LIMITS ON THIS CHECK, both worth stating rather than
+    burying:
+
+    1. battery_drain runs are EXCLUDED and cannot be covered by it. That
+       fault multiplies the rate at which charge is drawn
+       (FAULT_BATTERY_DRAIN_MULTIPLIER = 25) without changing the joules
+       recorded in the energy ledger, so the CSV simply does not contain
+       what those robots took from their batteries. On those seeds energy
+       genuinely does feed back on behaviour and the arithmetic here is
+       approximate, not exact.
+
+    2. It uses the squad mean rather than the individual robot that
+       actually ran flat, so it is a lower bound on the true worst case.
+
+    Session 14 measured this directly rather than leaving it theoretical:
+    on battery_drain seeds the new, lower coefficients let the drained
+    robot survive longer and the mission ran 15-18 % longer. That is a
+    real behavioural change caused by a coefficient change, and it is why
+    this function reports rather than merely reassures.
     """
     worst = 0.0
     for r in rows:
+        if r["fault_type"] == "battery_drain":
+            continue
         robots = 1 if r["condition"] == "C4" else 3
         per_robot = scaled_total(r, factors) / robots
         worst = max(worst, per_robot / config.BATTERY_CAPACITY_J)
@@ -212,8 +264,10 @@ def main(path="results.csv"):
     grand = sum(float(r[c]) for r in rows for c, _ in CATEGORIES)
     for column, coefficient in CATEGORIES:
         share = sum(float(r[column]) for r in rows) / grand * 100.0
+        # rounded for display: the derived values carry float dust
+        # (2.4/0.6 is 4.000000000000001), which is arithmetic, not a typo
         print(f"  {column:<18} {share:5.1f} %   ({coefficient}"
-              f" = {getattr(config, coefficient)})")
+              f" = {round(getattr(config, coefficient), 6):g})")
     print()
 
     # --- every comparison, at every scaling of every coefficient
@@ -223,7 +277,8 @@ def main(path="results.csv"):
           f"{'1x mean':>10} {'t':>7}   worst-case over the sweep")
     print("  " + "-" * 100)
 
-    for label, a, b, metric, fault, want in COMPARISONS:
+    mismatched = []
+    for label, a, b, metric, fault, claimed in COMPARISONS:
         base_diffs, seeds = paired(
             rows, a, b, lambda r: metric(r, {}), fault)
         if len(seeds) == 0:
@@ -231,32 +286,40 @@ def main(path="results.csv"):
             continue
         base_mean = float(np.mean(base_diffs))
         base_t = t_statistic(base_diffs)
+        base_sign = np.sign(base_mean)
 
-        # Sweep: one coefficient moved at a time, the rest at 1x.
+        # Does the sign the suite actually measured survive the sweep? The
+        # baseline is the measured 1x value, NOT the claimed direction --
+        # scaling a coefficient cannot make a claim wrong, only a
+        # measurement move.
         flips = []
-        worst_margin = None
+        closest = None
         for _, coefficient in CATEGORIES:
             for s in SCALES:
                 factors = {coefficient: s}
                 diffs, _ = paired(rows, a, b,
                                   lambda r: metric(r, factors), fault)
                 mean = float(np.mean(diffs))
-                # margin > 0 means the claimed sign still holds
-                margin = mean * want
-                if worst_margin is None or margin < worst_margin[0]:
-                    worst_margin = (margin, coefficient, s, mean)
+                margin = mean * base_sign      # >0 while the sign survives
+                if closest is None or margin < closest[0]:
+                    closest = (margin, coefficient, s, mean)
                 if margin <= 0:
                     flips.append((coefficient, s, mean))
 
-        margin, coefficient, s, mean = worst_margin
+        _, coefficient, s, mean = closest
         if flips:
-            verdict = f"FLIPS at {coefficient} x{s} (mean {mean:+.1f})"
+            verdict = f"SIGN FLIPS at {coefficient} x{s} ({mean:+.1f})"
             unstable.append((label, flips))
         else:
-            verdict = (f"holds; closest {coefficient} x{s} "
-                       f"-> {mean:+.1f}")
+            verdict = f"stable; closest {coefficient} x{s} -> {mean:+.1f}"
+
+        # Separately: is the measured sign the one we report?
+        note = ""
+        if base_sign != np.sign(claimed):
+            note = "  [sign is opposite to the claimed direction]"
+            mismatched.append((label, base_mean))
         print(f"  {label:<44} {len(seeds):>3}  "
-              f"{base_mean:>10.1f} {base_t:>7.2f}   {verdict}")
+              f"{base_mean:>10.1f} {base_t:>7.2f}   {verdict}{note}")
 
     # --- the C2 -> C5 -> C3 progression
     print("\nC2 -> C5 -> C3 ORDERING ON ENERGY PER POINT")
@@ -289,7 +352,8 @@ def main(path="results.csv"):
               f"of one robot's battery{flag}")
     print("  Below 100 % no robot dies, so no mission would have gone")
     print("  differently and the arithmetic above is exact rather than")
-    print("  approximate.")
+    print("  approximate. battery_drain runs are excluded and are the")
+    print("  known exception -- see battery_headroom()'s docstring.")
 
     # --- the verdict, in the words Chapter 4 needs
     print("\n" + "=" * 72)
@@ -298,14 +362,26 @@ def main(path="results.csv"):
         print("in every energy coefficient. No headline comparison changes")
         print("sign, and the C2 -> C5 -> C3 ordering is preserved throughout.")
     else:
-        print("VERDICT: NOT fully stable. The following depend on a")
-        print("coefficient and must be reported with that dependence:")
+        print("VERDICT: NOT fully stable. The following change SIGN when a")
+        print("coefficient is scaled, and must be reported with that")
+        print("dependence:")
         for label, flips in unstable:
             for coefficient, s, mean in flips:
                 print(f"  - {label}: flips at {coefficient} x{s} "
                       f"(mean {mean:+.1f})")
         for coefficient, s, means in broke:
             print(f"  - C2/C5/C3 ordering breaks at {coefficient} x{s}")
+
+    # A SEPARATE MATTER, AND NOT A STABILITY PROBLEM. These are rows where
+    # the squad's fault tolerance costs more than the naive baseline. They
+    # are stable -- reliably, robustly unflattering -- and both are already
+    # documented as honest failures.
+    if mismatched:
+        print("\nSIGN OPPOSITE TO THE CLAIMED DIRECTION (not instability):")
+        for label, mean in mismatched:
+            print(f"  - {label}: measured {mean:+.1f} J/point")
+        print("  These hold their sign across the whole sweep, so they are")
+        print("  robust findings rather than coefficient artefacts.")
     print("=" * 72)
 
 

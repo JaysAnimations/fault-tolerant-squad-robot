@@ -1,0 +1,35 @@
+C3 control arm -- old comms-loss behaviour, new coefficients
+RECOVERY_COMMS_LOSS_REALLOCATE = True
+29 seeds, 0 already done, 29 to go
+
+  [ 1/29] C3_s1       5966.9 J   149.2 J/pt  truly 40  realloc  1  (174s, ETA 81 min)
+  [ 2/29] C3_s2       6728.2 J   168.2 J/pt  truly 40  realloc  0  (173s, ETA 78 min)
+  [ 3/29] C3_s3       5410.9 J   135.3 J/pt  truly 40  realloc  0  (52s, ETA 58 min)
+  [ 4/29] C3_s4       7261.2 J   191.1 J/pt  truly 32  realloc  0  (248s, ETA 67 min)
+  [ 5/29] C3_s5       6841.5 J   180.0 J/pt  truly 38  realloc  0  (115s, ETA 61 min)
+  [ 6/29] C3_s6       7977.5 J   204.6 J/pt  truly 31  realloc  0  (155s, ETA 59 min)
+  [ 7/29] C3_s7       5385.1 J   134.6 J/pt  truly 40  realloc  0  (28s, ETA 49 min)
+  [ 8/29] C3_s8       6682.5 J   171.3 J/pt  truly 39  realloc  1  (254s, ETA 52 min)
+  [ 9/29] C3_s9       5825.2 J   145.6 J/pt  truly 40  realloc  1  (44s, ETA 46 min)
+  [10/29] C3_s10     13676.9 J   359.9 J/pt  truly 26  realloc  0  (286s, ETA 48 min)
+  [11/29] C3_s11     10756.2 J   275.8 J/pt  truly 39  realloc  0  (114s, ETA 45 min)
+  [12/29] C3_s12      7662.6 J   232.2 J/pt  truly 29  realloc  0  (211s, ETA 44 min)
+  [13/29] C3_s13      7415.6 J   185.4 J/pt  truly 40  realloc  1  (49s, ETA 39 min)
+  [14/29] C3_s15      5960.6 J   149.0 J/pt  truly 40  realloc  0  (36s, ETA 35 min)
+  [15/29] C3_s16      6856.0 J   175.8 J/pt  truly 39  realloc  0  (69s, ETA 31 min)
+  [16/29] C3_s17      6624.6 J   194.8 J/pt  truly 40  realloc  0  (174s, ETA 30 min)
+  [17/29] C3_s18      6667.2 J   166.7 J/pt  truly 40  realloc  0  (67s, ETA 26 min)
+  [18/29] C3_s19      6315.9 J   157.9 J/pt  truly 40  realloc  0  (110s, ETA 24 min)
+  [19/29] C3_s20      7664.8 J   191.6 J/pt  truly 40  realloc  1  (133s, ETA 22 min)
+  [20/29] C3_s21      9678.1 J   261.6 J/pt  truly 27  realloc  0  (180s, ETA 20 min)
+  [21/29] C3_s22      7027.2 J   175.7 J/pt  truly 30  realloc  0  (124s, ETA 18 min)
+  [22/29] C3_s23      6782.9 J   183.3 J/pt  truly 37  realloc  0  (84s, ETA 15 min)
+  [23/29] C3_s24      6543.0 J   163.6 J/pt  truly 40  realloc  1  (53s, ETA 13 min)
+  [24/29] C3_s25      5749.6 J   143.7 J/pt  truly 40  realloc  0  (89s, ETA 10 min)
+  [25/29] C3_s26      6306.7 J   157.7 J/pt  truly 40  realloc  0  (36s, ETA 8 min)
+  [26/29] C3_s27      9702.5 J   248.8 J/pt  truly 39  realloc  0  (73s, ETA 6 min)
+  [27/29] C3_s28      5024.8 J   125.6 J/pt  truly 40  realloc  0  (30s, ETA 4 min)
+  [28/29] C3_s42      7245.5 J   185.8 J/pt  truly 32  realloc  0  (166s, ETA 2 min)
+  [29/29] C3_s2024    7298.1 J   192.1 J/pt  truly 38  realloc  0  (163s, ETA 0 min)
+
+Done in 58.2 min -> results_c3_old.csv
