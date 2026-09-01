@@ -91,14 +91,39 @@ def response_for(fault_name):
         return {"trust": config.RECOVERY_SENSOR_TRUST, "rollback": False,
                 "reallocate": False, "invalidate": False}
 
-    if fault_name in ("comms_loss", "immobilised", "battery_drain"):
-        # Honest robots that cannot finish, or cannot coordinate. Their
-        # maps are as good as anyone's -- AND SO ARE THEIR COMPLETED
-        # INSPECTIONS. A robot with a dead radio, stuck wheels or a flat
-        # battery was exactly where it thought it was when it read that
-        # gauge. Discarding that work would be throwing away verified
-        # inspections to punish a robot for a fault that never touched
-        # them.
+    if fault_name == "comms_loss":
+        # AN ISOLATED ROBOT IS NOT A FAILED ONE, AND THE SUITE MEASURED
+        # WHAT TREATING IT AS ONE COSTS. truly-inspected was identical
+        # across C2, C5 and C3 (39.60 on all three) while C3 spent 265 J
+        # per point against C2's 213 -- 24 % more energy for zero coverage
+        # benefit, because the robot with the dead radio was completing
+        # its own lane the whole time. Reallocating it just made two
+        # healthy robots re-cover ground somebody was already covering.
+        #
+        # So: observe and log only. Detection still runs and is still
+        # scored -- knowing a robot is out of contact is useful to an
+        # operator even when the right response is to wait -- but nothing
+        # is released, nothing is quarantined and no trust changes. Its
+        # map merges on reconnect, which is what was recovering the
+        # information all along.
+        #
+        # config flag rather than a hard return, so the old behaviour can
+        # be re-run to separate this change from the coefficient change.
+        return {"trust": 1.0, "rollback": False,
+                "reallocate": config.RECOVERY_COMMS_LOSS_REALLOCATE,
+                "invalidate": False}
+
+    if fault_name in ("immobilised", "battery_drain"):
+        # Honest robots that GENUINELY CANNOT FINISH -- which is what
+        # separates these two from comms loss above. Stuck wheels and a
+        # flat battery leave work undone that somebody else has to pick
+        # up; a dead radio does not.
+        #
+        # Their maps are as good as anyone's -- AND SO ARE THEIR COMPLETED
+        # INSPECTIONS. A robot with stuck wheels or a flat battery was
+        # exactly where it thought it was when it read that gauge.
+        # Discarding that work would be throwing away verified inspections
+        # to punish a robot for a fault that never touched them.
         return {"trust": 1.0, "rollback": False, "reallocate": True,
                 "invalidate": False}
 

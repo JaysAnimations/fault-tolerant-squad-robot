@@ -1,0 +1,33 @@
+  C2 naive                               seed 7      6713.2 J   167.8 J/pt  truly 40  cov  99.31  realloc 0   (37s)
+  C2 naive                               seed 11     8397.4 J   215.3 J/pt  truly 39  cov  99.47  realloc 0   (48s)
+  C2 naive                               seed 15     5938.3 J   148.5 J/pt  truly 40  cov  98.94  realloc 0   (37s)
+  C2 naive                               seed 20     6829.2 J   170.7 J/pt  truly 40  cov  99.54  realloc 0   (42s)
+  C2 naive                               seed 27     5796.0 J   148.6 J/pt  truly 39  cov  99.07  realloc 0   (36s)
+  C5 timeout realloc, no detection       seed 7      5385.1 J   134.6 J/pt  truly 40  cov  99.42  realloc 0   (28s)
+  C5 timeout realloc, no detection       seed 11    10756.2 J   275.8 J/pt  truly 39  cov  99.02  realloc 0   (133s)
+  C5 timeout realloc, no detection       seed 15     5960.6 J   149.0 J/pt  truly 40  cov  99.38  realloc 0   (30s)
+  C5 timeout realloc, no detection       seed 20     7664.8 J   191.6 J/pt  truly 40  cov   98.6  realloc 0   (124s)
+  C5 timeout realloc, no detection       seed 27     9702.5 J   248.8 J/pt  truly 39  cov  99.03  realloc 0   (63s)
+  C3 OLD: comms loss reallocates         seed 7      5385.1 J   134.6 J/pt  truly 40  cov  99.42  realloc 0   (29s)
+  C3 OLD: comms loss reallocates         seed 11    10756.2 J   275.8 J/pt  truly 39  cov  99.02  realloc 0   (132s)
+  C3 OLD: comms loss reallocates         seed 15     5960.6 J   149.0 J/pt  truly 40  cov  99.38  realloc 0   (32s)
+  C3 OLD: comms loss reallocates         seed 20     7664.8 J   191.6 J/pt  truly 40  cov   98.6  realloc 1   (140s)
+  C3 OLD: comms loss reallocates         seed 27     9702.5 J   248.8 J/pt  truly 39  cov  99.03  realloc 0   (71s)
+  C3 NEW: comms loss observed only       seed 7      5385.1 J   134.6 J/pt  truly 40  cov  99.42  realloc 0   (31s)
+  C3 NEW: comms loss observed only       seed 11    10756.2 J   275.8 J/pt  truly 39  cov  99.02  realloc 0   (126s)
+  C3 NEW: comms loss observed only       seed 15     5960.6 J   149.0 J/pt  truly 40  cov  99.38  realloc 0   (32s)
+  C3 NEW: comms loss observed only       seed 20     7664.8 J   191.6 J/pt  truly 40  cov   98.6  realloc 0   (121s)
+  C3 NEW: comms loss observed only       seed 27     9702.5 J   248.8 J/pt  truly 39  cov  99.03  realloc 0   (63s)
+Traceback (most recent call last):
+  File "C:\Users\User\Desktop\Final Year Project\Project\Final Year Project\Dummy Simulation_Modified\session14_measurements\stage2_commsloss.py", line 57, in <module>
+    w.writerow(r)
+    ~~~~~~~~~~^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\csv.py", line 225, in writerow
+    return self.writer.writerow(self._dict_to_list(rowdict))
+                                ~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\csv.py", line 220, in _dict_to_list
+    raise ValueError("dict contains fields not in fieldnames: "
+                     + ", ".join([repr(x) for x in wrong_fields]))
+ValueError: dict contains fields not in fieldnames: '_wall_s'
+
+[exited with code 0]

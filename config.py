@@ -891,6 +891,39 @@ RECOVERY_REALLOCATE_ACCUSERS = 1
 # response and log-odds makes it a multiplication.
 RECOVERY_SENSOR_TRUST = 0.25
 
+# --- what to do about an isolated robot: NOTHING ----------------------
+# CHANGED IN SESSION 14 from True, and flagged per the convention. It is
+# the only behavioural change of that session, and it is justified by
+# measurement rather than by argument.
+#
+# The 174-run suite measured points_truly_visited as IDENTICAL across C2,
+# C5 and C3 on comms_loss -- 39.60 in all three -- while C3 spent 265 J
+# per point against C2's 213. Reallocating an isolated robot's lane
+# therefore cost 24 % more energy for exactly zero coverage benefit.
+#
+# The reason is that the premise was wrong. Reallocation exists because a
+# robot that cannot finish its work needs somebody else to do it. A robot
+# with a dead radio finishes its own lane perfectly well: it is not
+# broken, it is alone. What it cannot do is TELL anyone, and taking its
+# work away does not fix that -- it just makes two healthy robots re-cover
+# ground that was already being covered.
+#
+# Session 13 recorded the same thing from the other side: the arm that
+# responded correctly measured worse on completeness than the arm that did
+# nothing. That was read as an instrument problem. With the energy column
+# beside it, it is better read as the response being wrong.
+#
+# So comms loss is now OBSERVED AND LOGGED ONLY. Detection still runs and
+# is still scored; no claim is released, nothing is quarantined and no
+# trust is changed. The isolated robot's map merges on reconnect exactly
+# as before, which is the mechanism that was always doing the real work.
+#
+# Kept as a flag rather than deleted, because Session 14 needs the old
+# behaviour to separate this change from the coefficient change: C3 is the
+# only condition that runs recovery at all, so re-running C3 with this set
+# True is what isolates the effect.
+RECOVERY_COMMS_LOSS_REALLOCATE = False
+
 COMMS_SUSPICION_PACKET_KB = 0.05   # a suspect id and a fault name
 
 # --- comms loss, and the trap it sets ---------------------------------

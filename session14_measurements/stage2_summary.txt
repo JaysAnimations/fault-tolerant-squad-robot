@@ -1,0 +1,29 @@
+parsed 20 runs
+
+MEANS OVER THE FIVE comms_loss SEEDS (new coefficients throughout)
+arm                                    energy J   J/point    truly    cov %  realloc
+------------------------------------------------------------------------------------
+C2 naive                                 6734.8    170.18    39.60    99.27     0.00
+C5 timeout realloc, no detection         7893.8    199.96    39.60    99.09     0.00
+C3 OLD: comms loss reallocates           7893.8    199.96    39.60    99.09     0.20
+C3 NEW: comms loss observed only         7893.8    199.96    39.60    99.09     0.00
+
+C3 old vs C2 : +29.78 J/point (+17.5 %)
+C3 new vs C2 : +29.78 J/point (+17.5 %)
+C3 new vs C5 : +0.00 J/point
+EFFECT OF THE STAGE 2 FLAG ALONE : +0.00 J/point
+
+PER-SEED, C3 old vs C3 new:
+  seed 7    energy    5385.1 vs    5385.1  truly 40 vs 40  realloc 0 vs 0   IDENTICAL
+  seed 11   energy   10756.2 vs   10756.2  truly 39 vs 39  realloc 0 vs 0   IDENTICAL
+  seed 15   energy    5960.6 vs    5960.6  truly 40 vs 40  realloc 0 vs 0   IDENTICAL
+  seed 20   energy    7664.8 vs    7664.8  truly 40 vs 40  realloc 1 vs 0   IDENTICAL
+  seed 27   energy    9702.5 vs    9702.5  truly 39 vs 39  realloc 0 vs 0   IDENTICAL
+  -> 5 of 5 seeds identical on energy, truly and coverage
+
+PER-SEED, C5 vs C3 new:
+  seed 7       5385.1 vs    5385.1   IDENTICAL
+  seed 11     10756.2 vs   10756.2   IDENTICAL
+  seed 15      5960.6 vs    5960.6   IDENTICAL
+  seed 20      7664.8 vs    7664.8   IDENTICAL
+  seed 27      9702.5 vs    9702.5   IDENTICAL
