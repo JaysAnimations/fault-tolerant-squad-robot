@@ -1,0 +1,9 @@
+BASELINE -- demo_single, three seeds
+E_DRIVE=4.00  E_TURN=2.00  P_SENSE=2.00  P_COMPUTE=0.60
+
+  seed  Coverage     J/m2   Distance      F1  Collisions  Skipped
+    42    98.50 %     1.99     863.4 m   0.993          75        0
+     7    97.32 %     2.03     865.8 m   0.811           0        0
+  2024    97.30 %     1.90     831.2 m   0.846           0        0
+
+PASS on the two binding criteria (coverage, waypoints skipped).

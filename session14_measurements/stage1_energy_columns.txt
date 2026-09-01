@@ -1,0 +1,11 @@
+run: C1_s7
+  energy_drive_j         2346.9   43.3 %
+  energy_turn_j           284.6    5.3 %
+  energy_sense_j         2017.8   37.2 %
+  energy_compute_j        605.3   11.2 %
+  energy_comms_j          165.6    3.1 %
+  SUM of five            5420.2
+  total_energy_j         5420.2
+  residual: 0.000 J  (rounding only)
+
+OK: five categories populated and summing to the total.

@@ -287,6 +287,23 @@ def squad_metrics(facility, squad, points):
     total_distance = sum(m.robot.distance_travelled_m for m in squad)
     total_energy = sum(m.robot.total_energy_j for m in squad)
 
+    # THE BREAKDOWN IS A RESULT, NOT BOOKKEEPING, AND THROWING IT AWAY IS
+    # EXPENSIVE. `robot.energy` already separates drive / turn / sense /
+    # compute / comms, but only the total was ever reported, so every
+    # question of the form "what if E_DRIVE_J_PER_M is wrong by a factor of
+    # two?" could only be answered by re-running the 174-mission suite --
+    # 2.6 hours per answer. With the five categories summed across the squad
+    # and written to the CSV, the same question becomes arithmetic on a file
+    # that already exists: scale one column, re-total, see whether the
+    # conclusion moves. That is what `sensitivity.py` does.
+    #
+    # Summed across robots, matching every other energy figure here. The
+    # per-robot split is recoverable from the traces if it is ever wanted.
+    energy_by_category = {}
+    for category in ("drive", "turn", "sense", "compute", "comms"):
+        energy_by_category[category] = sum(
+            m.robot.energy[category] for m in squad)
+
     # Redundant coverage: ground seen by more than one robot. Uses each
     # robot's OWN observations, not its merged map -- otherwise every
     # exchange would look like duplicated driving, which it is not.
@@ -305,6 +322,7 @@ def squad_metrics(facility, squad, points):
         "unreachable": len(unreachable), "missed": len(missed_reachable),
         "success": len(missed_reachable) == 0,
         "distance": total_distance, "energy": total_energy,
+        "energy_by_category": energy_by_category,
         "per_point": total_energy / max(len(visited), 1),
         "area_seen_m2": seen * cell_area,
         "area_twice_m2": twice * cell_area,

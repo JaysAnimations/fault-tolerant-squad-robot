@@ -74,19 +74,85 @@ ODOM_ANGULAR_DRIFT_STD = 0.003  # fractional error per step on rotation
 # E_total = E_drive*distance + E_turn*|rotation| + P_sense*t + P_compute*t
 #           + E_comms*bytes_sent
 #
-# !!! IMPORTANT !!!
-# These are PLACEHOLDER values. Before your final experiment runs, the
-# hardware team must replace them with coefficients measured from the
-# INA219 current sensors on the physical robots. That measurement is what
-# turns this from "a simulation we invented" into "an empirically
-# calibrated model". Do not skip it -- it is your strongest defence point.
+# THE FOUR MAIN COEFFICIENTS ARE NO LONGER MAGIC NUMBERS. They are derived
+# below from named component specifications, so Chapter 3 can show the
+# arithmetic rather than asking a panel to take four numbers on trust.
+# CHANGED IN SESSION 14, and flagged per the convention -- every energy
+# figure in the project moves. Old -> new: E_DRIVE 8.0 -> 4.0 (-50 %),
+# E_TURN 3.5 -> 2.0 (-43 %), P_SENSE 0.80 -> 2.00 (+150 %), P_COMPUTE
+# 1.20 -> 0.60 (-50 %). The previous values were placeholders invented in
+# Session 0 and never defended.
+#
+# The composition shift matters more than the totals: sensing rises from
+# ~11.5 % of a mission's energy to ~39 %, so energy becomes far more
+# TIME-dependent and less DISTANCE-dependent. A robot that is switched on
+# and doing nothing is now expensive, which is the whole argument against a
+# squad that flails for 2000 s.
 
-E_DRIVE_J_PER_M = 8.0        # joules to travel one metre in a straight line
-E_TURN_J_PER_RAD = 3.5      # joules to rotate one radian on the spot
-                             # (higher than driving: both wheels fight each other)
-P_SENSE_W = 0.80             # LiDAR power draw, watts (continuous while scanning)
-P_COMPUTE_W = 1.20           # onboard processing, watts (continuous while alive)
-E_COMMS_J_PER_KB = 0.05      # joules per kilobyte transmitted
+# --- Component specifications, from manufacturer datasheets -------------
+# TT gearbox motor, 1:48, published bench measurements (Adafruit 3777 /
+# Cytron): rated 3-6 V, no-load current 150 mA +/- 10 %, LOADED CURRENT
+# <= 200 mA at 6 V, 200 RPM +/- 10 % at 6 V, stall 1.5 A.
+MOTOR_SUPPLY_V          = 6.0     # top of the rated 3-6 V range
+MOTOR_CURRENT_LOADED_A  = 0.20    # <= 200 mA at 6 V, vendor bench test
+MOTOR_COUNT             = 2       # differential drive: two wheels, two motors
+
+# COEFFICIENTS ARE COMPUTED AT THE SIMULATOR'S OPERATING POINT, NOT THE
+# MOTOR'S MAXIMUM, because energy per metre is power divided by the speed
+# actually travelled. Bound to the motion caps rather than restating 0.6
+# and 1.2, so the two cannot drift apart -- the same reasoning that made
+# SENSOR_MIN_PROGRESS share BYZANTINE_MIN_PROGRESS's value in Session 13.
+MOTOR_NOMINAL_SPEED_MPS = MAX_LINEAR_SPEED_MPS     # 0.6 m/s
+MOTOR_TURN_RATE_RAD_S   = MAX_ANGULAR_SPEED_RPS    # 1.2 rad/s
+
+# ESP32 datasheet, Table 5-4 (Wi-Fi current consumption), 3.3 V, 25 C:
+#   receive 802.11b/g/n draws 95-100 mA; transmit peaks at 240 mA (802.11b).
+#   The robot broadcasts a heartbeat every HEARTBEAT_PERIOD_S and listens
+#   the rest of the time, so it sits in RECEIVE mode almost always and the
+#   240 mA transmit peak is a duty-cycle footnote, not the steady state.
+#   0.12 A at 5 V covers the chip's 100 mA plus the DevKit board's AMS1117
+#   linear regulator and USB-serial bridge, which are on the 5 V rail.
+MCU_SUPPLY_V            = 5.0     # ESP32 DevKit board input, not the 3.3 V chip rail
+MCU_ACTIVE_CURRENT_A    = 0.12    # 100 mA chip receive + board overhead
+
+# RPLIDAR A1 datasheet, Figure 2-8 (typical current), work mode at 5 V:
+#   scanner system 300 mA typical, motor system 100 mA typical.
+#   Startup surge is 500 mA -- that is a battery-sizing figure, not a
+#   steady-state one, and it is deliberately not used here.
+LIDAR_SUPPLY_V          = 5.0
+LIDAR_SCANNER_CURRENT_A = 0.300   # scanner system, work mode
+LIDAR_MOTOR_CURRENT_A   = 0.100   # motor system, work mode
+
+# --- Derived coefficients -- computed, never hand-edited ----------------
+# KEEP THIS STRUCTURE. A single-robot prototype (HARDWARE_ONE_ROBOT.md)
+# will measure E_DRIVE_J_PER_M, E_TURN_J_PER_RAD and P_COMPUTE_W with an
+# INA219. When those land, the SPECIFICATIONS above are replaced and these
+# four formulas are not touched -- and the datasheet figures become the
+# cross-check rather than the source. P_SENSE_W stays a datasheet figure
+# either way, because that build uses line sensors rather than a scanning
+# LiDAR: say so plainly rather than implying it was measured.
+E_DRIVE_J_PER_M  = (MOTOR_COUNT * MOTOR_SUPPLY_V * MOTOR_CURRENT_LOADED_A
+                    / MOTOR_NOMINAL_SPEED_MPS)          # 2.4 W / 0.6 m/s = 4.0
+E_TURN_J_PER_RAD = (MOTOR_COUNT * MOTOR_SUPPLY_V * MOTOR_CURRENT_LOADED_A
+                    / MOTOR_TURN_RATE_RAD_S)            # 2.4 W / 1.2 rad/s = 2.0
+P_COMPUTE_W      = MCU_SUPPLY_V * MCU_ACTIVE_CURRENT_A  # 5.0 * 0.12 = 0.60
+P_SENSE_W        = LIDAR_SUPPLY_V * (LIDAR_SCANNER_CURRENT_A
+                                     + LIDAR_MOTOR_CURRENT_A)  # 5.0 * 0.40 = 2.00
+
+# If the arithmetic above ever stops producing these numbers, something has
+# been hand-edited that should have been derived. Cheap to check, and it
+# fails at import rather than silently in row 140 of a 2.6-hour suite.
+assert abs(E_DRIVE_J_PER_M - 4.00) < 1e-9, E_DRIVE_J_PER_M
+assert abs(E_TURN_J_PER_RAD - 2.00) < 1e-9, E_TURN_J_PER_RAD
+assert abs(P_COMPUTE_W - 0.60) < 1e-9, P_COMPUTE_W
+assert abs(P_SENSE_W - 2.00) < 1e-9, P_SENSE_W
+
+# NOT derived and still a placeholder, said plainly rather than left to be
+# assumed: no datasheet figure was available for per-kilobyte radio energy,
+# and it is not worth inventing one. It contributes a negligible fraction
+# of a mission (see the energy_comms_j column in results.csv), so leaving
+# it alone does not affect any conclusion.
+E_COMMS_J_PER_KB = 0.05      # joules per kilobyte transmitted -- PLACEHOLDER
 
 BATTERY_CAPACITY_J = 33000.0 # ~2x 18650 cells at 3.7V 2500mAh. A robot that
                              # exhausts this is dead for the rest of the mission.

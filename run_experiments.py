@@ -104,6 +104,13 @@ COLUMNS = [
     "points_falsely_reported", "points_invalidated",
     "points_visited", "points_total", "points_unreachable", "mission_success",
     "duration_s", "total_energy_j", "energy_per_point_j", "energy_per_m2_j",
+    # THE ENERGY BREAKDOWN, SUMMED ACROSS ROBOTS. These five sum to
+    # total_energy_j. They are here so that coefficient uncertainty can be
+    # answered from the file instead of from a 2.6-hour re-run: each column
+    # is linear in exactly one config coefficient, so scaling a coefficient
+    # is scaling a column. See sensitivity.py.
+    "energy_drive_j", "energy_turn_j", "energy_sense_j",
+    "energy_compute_j", "energy_comms_j",
     "distance_total_m", "collisions", "robots_alive_at_end",
     # The operator's map -- one healthy robot's own merged grid, which is
     # what actually gets handed over. The union columns are kept alongside
@@ -216,6 +223,11 @@ def build_row(condition, seed, out, wall_s):
         "total_energy_j": round(m["energy"], 1),
         "energy_per_point_j": round(m["energy"] / max(visited, 1), 1),
         "energy_per_m2_j": round(m["energy"] / max(area, 1e-6), 3),
+        "energy_drive_j": round(m["energy_by_category"]["drive"], 1),
+        "energy_turn_j": round(m["energy_by_category"]["turn"], 1),
+        "energy_sense_j": round(m["energy_by_category"]["sense"], 1),
+        "energy_compute_j": round(m["energy_by_category"]["compute"], 1),
+        "energy_comms_j": round(m["energy_by_category"]["comms"], 1),
         "distance_total_m": round(m["distance"], 1),
         "collisions": sum(s.robot.collisions for s in squad),
         "robots_alive_at_end": sum(1 for s in squad if s.robot.alive),
