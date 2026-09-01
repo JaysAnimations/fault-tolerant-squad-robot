@@ -1,0 +1,23 @@
+﻿
+VALIDATION -- seed 7, all six conditions
+
+  C0  perfect drawings, no faults -- theoretical b 40/40    336s  (32s wall)
+  C1  out-of-date drawings, no faults              40/40    336s  (31s wall)
+  C2  naive: claims are permanent, nothing is real 40/40    492s  (36s wall)
+  C5  ablation: claims lapse and are re-auctioned, 40/40    336s  (28s wall)
+  C3  the proposed system                          40/40    336s  (35s wall)
+  C4  one robot -- reallocation is not possible at 40/40    898s  (34s wall)
+
+  run_id     fault                    pts  succ   dur_s    J/pt   cov%     F1  det    lat  fp  Qok  Qbad    cells  realloc  contact
+  C0_s7      none                  40/40      1     336     184   99.5  0.697   -1     -1   0    0     0        0        0    0.689
+  C1_s7      none                  40/40      1     336     184   99.4  0.701   -1     -1   0    0     0        0        0    0.674
+  C2_s7      comms_loss            40/40      1     492     211   99.3  0.703    0     -1   0    0     0        0        0    0.594
+  C5_s7      comms_loss            40/40      1     336     184   99.4  0.700    0     -1   0    0     0        0        0    0.674
+  C3_s7      comms_loss            40/40      1     336     184   99.4  0.700    0     -1   0    0     0        0        0    0.674
+  C4_s7      comms_loss            40/40      1     898     161   98.6  0.614    0     -1   0    0     0        0        0    0.000
+
+  All 40 columns populated on all 6 rows. No blanks, no NaNs.
+  Seed 7 took 196 s for six conditions (33 s per run).
+  ESTIMATE for 6 x 30 = 180 runs: 98 min (1.6 h)
+  -- seed 7 is a fast seed; the awkward ones (2024) run longer,
+     so treat this as a lower bound.

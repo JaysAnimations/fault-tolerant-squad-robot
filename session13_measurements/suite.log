@@ -1,0 +1,30 @@
+﻿
+6 conditions x 30 seeds = 180 runs
+0 already in results.csv, 180 to go
+
+  [  1/180] C0_s1      40/40    341s sim     62s wall  | eta 186 min
+  [  2/180] C1_s1      40/40    341s sim     62s wall  | eta 185 min
+  [  3/180] C2_s1      31/40    751s sim     50s wall  | eta 172 min
+  [  4/180] C5_s1      40/40    410s sim    158s wall  | eta 244 min
+  [  5/180] C3_s1      40/40    410s sim    186s wall  | eta 302 min
+  [  6/180] C4_s1      13/40   3325s sim    134s wall  | eta 315 min
+  [  7/180] C0_s2      40/40    390s sim    198s wall  | eta 350 min
+  [  8/180] C1_s2      40/40    423s sim    293s wall  | eta 410 min
+  [  9/180] C2_s2      38/40    414s sim     65s wall  | eta 382 min
+  [ 10/180] C5_s2      40/40    473s sim    338s wall  | eta 438 min
+  [ 11/180] C3_s2      40/40    443s sim    161s wall  | eta 437 min
+  [ 12/180] C4_s2      16/40    357s sim     19s wall  | eta 403 min
+  [ 13/180] C0_s3      40/40    335s sim     79s wall  | eta 387 min
+  [ 14/180] C1_s3      40/40    336s sim     83s wall  | eta 373 min
+  [ 15/180] C2_s3      40/40    473s sim     64s wall  | eta 358 min
+  [ 16/180] C5_s3      40/40    336s sim     72s wall  | eta 346 min
+  [ 17/180] C3_s3      40/40    336s sim     96s wall  | eta 339 min
+  [ 18/180] C4_s3      40/40    825s sim     59s wall  | eta 327 min
+  [ 19/180] C0_s4      40/40    349s sim     96s wall  | eta 321 min
+  [ 20/180] C1_s4      39/40    455s sim    279s wall  | eta 341 min
+  [ 21/180] C2_s4      38/40    488s sim    137s wall  | eta 340 min
+  [ 22/180] C5_s4      38/40    501s sim    362s wall  | eta 366 min
+  [ 23/180] C3_s4      38/40    501s sim    363s wall  | eta 389 min
+  [ 24/180] C4_s4      33/40   1676s sim    140s wall  | eta 385 min
+  [ 25/180] C0_s5      40/40    393s sim    143s wall  | eta 382 min
+  [ 26/180] C1_s5      36/40    410s sim    111s wall  | eta 376 min

@@ -1,0 +1,77 @@
+﻿==============================================================================
+  DATASET VALIDATION
+==============================================================================
+  rows            : 174
+  seeds           : 29 (all six conditions each)
+  seed 14 present : no, correctly excluded
+  problems        : NONE
+
+==============================================================================
+  HEADLINE -- C2 vs C5 vs C3, the faulted arms
+==============================================================================
+                                  C2          C5          C3
+  believed inspected            1050        1125        1127
+  truly inspected                986        1062        1076
+  falsely reported                64          63          59
+  points total                  1159        1159        1159
+  over-report                    +64         +63         +51
+  missions succeeded           10/29       16/29       17/29
+  mean duration s             869.81      515.28      499.61
+  mean energy J             10641.92     9412.25     9414.37
+  mean coverage %              99.25       99.10       98.07
+  mean surface F1               0.69        0.69        0.67
+  mean obs error %              1.40        1.68        3.09
+  quarantines correct              0           0           2
+  quarantines wrong                0           0           2
+  cells restored                   0           0      268289
+  points reallocated               0           0           6
+
+==============================================================================
+  C0 vs C1 -- what an out-of-date drawing costs (no faults either way)
+==============================================================================
+  points truly visited         39.83       39.55      -0.7 %
+  missions succeeded            0.86        0.79      -8.0 %
+  duration s                   403.3       422.6      +4.8 %
+  energy J                      8186        8413      +2.8 %
+  energy per m2 J              2.531       2.576      +1.8 %
+  distance m                   605.2       611.5      +1.0 %
+  coverage %                   99.22       98.74      -0.5 %
+  surface F1                  0.7007      0.6920      -1.2 %
+  false positives               0.07        0.10     +50.0 %
+  (columns: C0, C1, change)
+
+==============================================================================
+  C4 -- one robot, faults, no reallocation possible
+==============================================================================
+  truly inspected   C4  536 / 1159     C3 1076 / 1159
+  missions ok       C4    8 / 29       C3   17 / 29  
+
+==============================================================================
+  EACH FAULT ON THE METRIC IT DAMAGES -- 29 seeds
+==============================================================================
+  fault                  n metric            dir         C2        C5        C3  verdict
+  sensor_degradation     4 surface F1        hi       0.693     0.691     0.696  holds
+                           observed err %    lo        0.98      1.15      1.08  FAILS
+  wrong_position         7 truly inspected   hi       28.14     30.00     29.57  holds
+                           falsely reported  lo        9.14      9.00      8.43  holds
+  comms_loss             5 coverage %        hi       99.27     99.09     99.09  FAILS
+                           surface F1        hi       0.694     0.685     0.685  FAILS
+  immobilised            7 points visited    hi       29.57     36.86     39.00  holds
+  battery_drain          6 points visited    hi       37.67     39.67     39.00  holds
+                           missions ok       hi        0.17      0.67      0.83  holds
+
+  PRIMARY METRIC HOLDS ON 4 OF 5 FAULTS
+
+==============================================================================
+  DETECTION, on the faulted conditions that detect (C3)
+==============================================================================
+  fault                   n   detected  mean latency s   Q ok  Q wrong
+  sensor_degradation      4       4/4             50.6      0        0
+  wrong_position          7       2/7            257.5      2        0
+  comms_loss              5       1/5             22.8      0        0
+  immobilised             7       7/7             30.4      0        0
+  battery_drain           6       6/6             11.3      0        2
+
+  false positives on healthy squads: C0 2 across 29 runs, C1 3 across 29 runs
+  C0 believed 1155 vs truly 1155;  C1 believed 1141 vs truly 1147
+==============================================================================

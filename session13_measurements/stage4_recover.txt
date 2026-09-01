@@ -1,0 +1,105 @@
+﻿  seed 42    sensor_degradation   C2  40/40     475s  acted 0
+  seed 42    sensor_degradation   C5  40/40     420s  acted 0
+  seed 42    sensor_degradation   C3  40/40     420s  acted 2
+  seed 42    wrong_position       C2  35/40     434s  acted 0
+  seed 42    wrong_position       C5  39/40     490s  acted 0
+  seed 42    wrong_position       C3  39/40     490s  acted 0
+  seed 42    comms_loss           C2  40/40     516s  acted 0
+  seed 42    comms_loss           C5  40/40     516s  acted 0
+  seed 42    comms_loss           C3  40/40     540s  acted 3
+  seed 42    immobilised          C2  28/40    2505s  acted 0
+  seed 42    immobilised          C5  37/40     481s  acted 0
+  seed 42    immobilised          C3  40/40     487s  acted 2
+  seed 42    battery_drain        C2  33/40     337s  acted 0
+  seed 42    battery_drain        C5  40/40     530s  acted 0
+  seed 42    battery_drain        C3  40/40     415s  acted 2
+  seed 7     sensor_degradation   C2  40/40     492s  acted 0
+  seed 7     sensor_degradation   C5  40/40     336s  acted 0
+  seed 7     sensor_degradation   C3  40/40     336s  acted 2
+  seed 7     wrong_position       C2  39/40     630s  acted 0
+  seed 7     wrong_position       C5  39/40     531s  acted 0
+  seed 7     wrong_position       C3  39/40     531s  acted 2
+  seed 7     comms_loss           C2  40/40     492s  acted 0
+  seed 7     comms_loss           C5  40/40     336s  acted 0
+  seed 7     comms_loss           C3  40/40     336s  acted 0
+  seed 7     immobilised          C2  34/40    1518s  acted 0
+  seed 7     immobilised          C5  37/40     494s  acted 0
+  seed 7     immobilised          C3  38/40     548s  acted 2
+  seed 7     battery_drain        C2  40/40     492s  acted 0
+  seed 7     battery_drain        C5  40/40     408s  acted 0
+  seed 7     battery_drain        C3  40/40     408s  acted 2
+  seed 2024  sensor_degradation   C2  38/39     561s  acted 0
+  seed 2024  sensor_degradation   C5  38/39     521s  acted 0
+  seed 2024  sensor_degradation   C3  38/39     480s  acted 2
+  seed 2024  wrong_position       C2  32/39     437s  acted 0
+  seed 2024  wrong_position       C5  37/39     768s  acted 0
+  seed 2024  wrong_position       C3  37/39     780s  acted 6
+  seed 2024  comms_loss           C2  38/39     512s  acted 0
+  seed 2024  comms_loss           C5  38/39     944s  acted 0
+  seed 2024  comms_loss           C3  38/39     998s  acted 3
+  seed 2024  immobilised          C2  31/39     590s  acted 0
+  seed 2024  immobilised          C5  37/39     559s  acted 0
+  seed 2024  immobilised          C3  37/39     564s  acted 2
+  seed 2024  battery_drain        C2  36/39     428s  acted 0
+  seed 2024  battery_drain        C5  38/39     519s  acted 0
+  seed 2024  battery_drain        C3  38/39     525s  acted 4
+
+================================================================================================
+  STEP 5 -- RECOVERY, re-measured with a genuinely naive C2
+================================================================================================
+  C2 = claims permanent, nothing reallocated
+  C5 = claims lapse and are re-auctioned, nobody detects anything
+  C3 = detection and quarantine on top
+------------------------------------------------------------------------------------------------
+  seed   fault                     C2      C5      C3   latency  cells back  realloc   target
+------------------------------------------------------------------------------------------------
+  42     sensor_degradation    40/40  40/40  40/40       83 s           0        0    right
+  42     wrong_position        35/40  39/40  39/40          -           0        0        -
+  42     comms_loss            40/40  40/40  40/40       25 s           0        1    WRONG
+  42     immobilised           28/40  37/40  40/40       23 s           0        1    right
+  42     battery_drain         33/40  40/40  40/40        3 s           0        0    right
+  7      sensor_degradation    40/40  40/40  40/40       27 s           0        0    right
+  7      wrong_position        39/40  39/40  39/40      275 s           0        1    right
+  7      comms_loss            40/40  40/40  40/40          -           0        0        -
+  7      immobilised           34/40  37/40  38/40       52 s           0        1    right
+  7      battery_drain         40/40  40/40  40/40        7 s           0        0    right
+  2024   sensor_degradation    38/39  38/39  38/39      116 s           0        0    right
+  2024   wrong_position        32/39  37/39  37/39      356 s           0        0    WRONG
+  2024   comms_loss            38/39  38/39  38/39       24 s           0        0    WRONG
+  2024   immobilised           31/39  37/39  37/39       96 s           0        1    right
+  2024   battery_drain         36/39  38/39  38/39        1 s           0        0    right
+------------------------------------------------------------------------------------------------
+  EACH FAULT ON THE METRIC IT DAMAGES
+  (hi = higher is better, lo = lower is better;
+   'verdict' asks only whether C2 is worse than C3, as it should be)
+------------------------------------------------------------------------------------------------
+  fault                metric            dir         C2        C5        C3  verdict
+  sensor_degradation   surface F1        hi       0.686    0.681    0.690  as expected
+                       observed err %    lo        0.95     1.18     1.01  NOT as expected
+  wrong_position       truly inspected   hi        31.0     35.7     35.7  as expected
+                       falsely reported  lo         4.3      2.7      2.7  as expected
+                       observed err %    lo        2.91     3.05     3.00  NOT as expected
+  comms_loss           coverage %        hi       99.41    99.14    99.11  NOT as expected
+                       surface F1        hi       0.698    0.694    0.683  NOT as expected
+  immobilised          points visited    hi        31.0     37.0     38.3  as expected
+  battery_drain        points visited    hi        36.3     39.3     39.3  as expected
+                       missions ok       hi        0.33     1.00     1.00  as expected
+------------------------------------------------------------------------------------------------
+  MISSION SUCCESS AND FALSE REPORTS, PER FAULT
+  fault                    success C2/C5/C3    falsely reported C2/C5/C3
+  sensor_degradation             3/3/3 of 3                        0/0/0
+  wrong_position                 0/0/0 of 3                       13/8/8
+  comms_loss                     3/3/3 of 3                        0/0/0
+  immobilised                    0/0/1 of 3                        0/0/0
+  battery_drain                  1/3/3 of 3                        0/0/0
+------------------------------------------------------------------------------------------------
+  OVERALL C2   believed 544/595   truly 531/595   success 7/15   dur 695 s   energy 9408 J   re-inspected 0
+  OVERALL C5   believed 580/595   truly 572/595   success 9/15   dur 524 s   energy 9755 J   re-inspected 0
+  OVERALL C3   believed 584/595   truly 576/595   success 10/15   dur 524 s   energy 9808 J   re-inspected 0
+  're-inspected' is work thrown away by quarantine and done again --
+  the price of not being able to tell a faulty robot's good work from its bad.
+  WRONG ROBOT quarantined in 3 run(s): seed 42/comms_loss -> [1, 2], seed 2024/wrong_position -> [0, 2], seed 2024/comms_loss -> [0, 1]
+  Recovery actions taken BEFORE the fault existed: 0
+================================================================================================
+
+Saved demo_recover_result.png

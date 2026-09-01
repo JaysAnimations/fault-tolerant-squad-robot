@@ -1,0 +1,16 @@
+﻿  seed 1 done, 105 probe rows so far
+  seed 2 done, 234 probe rows so far
+  seed 7 done, 336 probe rows so far
+  seed 13 done, 447 probe rows so far
+  seed 42 done, 585 probe rows so far
+  seed 2024 done, 741 probe rows so far
+
+wrote 741 rows -> C:\Users\User\AppData\Local\Temp\claude\C--Users-User-Desktop-Final-Year-Project-Project-Final-Year-Project\158f8826-fbc5-4623-adb3-03bce62660dc\scratchpad\m3_probe.csv
+
+checks past the progress gate: 575 of 741
+triple overlap over those checks: min 8,223  p05 8,223  median 15,812  max 51,899
+pairwise overlap  : min 8,413  median 31,969  max 113,453
+
+ratios produced on a HEALTHY squad (1150 judgements), threshold 1.4
+  pairwise (today)   median  0.89  p95   6.01  max   61.40  over threshold  36.3 %
+  triple-overlap     median  0.80  p95  21.00  max   21.00  over threshold  23.4 %

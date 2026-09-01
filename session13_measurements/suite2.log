@@ -1,0 +1,46 @@
+﻿
+6 conditions x 30 seeds = 180 runs
+26 already in results.csv, 154 to go
+
+  [  1/154] C2_s5      24/40   2718s sim    260s wall  | eta 668 min
+  [  2/154] C5_s5      29/40    601s sim    174s wall  | eta 553 min
+  [  3/154] C3_s5      38/40    497s sim    170s wall  | eta 509 min
+  [  4/154] C4_s5       3/40   2264s sim     99s wall  | eta 441 min
+  [  5/154] C0_s6      40/40    378s sim    101s wall  | eta 401 min
+  [  6/154] C1_s6      40/40    426s sim    217s wall  | eta 421 min
+  [  7/154] C2_s6      38/40    459s sim     56s wall  | eta 378 min
+  [  8/154] C5_s6      39/40    568s sim    236s wall  | eta 401 min
+  [  9/154] C3_s6      39/40    568s sim    230s wall  | eta 416 min
+  [ 10/154] C4_s6      40/40    964s sim     43s wall  | eta 382 min
+  [ 11/154] C0_s7      40/40    336s sim     44s wall  | eta 354 min
+  [ 12/154] C1_s7      40/40    336s sim     42s wall  | eta 331 min
+  [ 13/154] C2_s7      40/40    492s sim     57s wall  | eta 313 min
+  [ 14/154] C5_s7      40/40    336s sim     43s wall  | eta 296 min
+  [ 15/154] C3_s7      40/40    336s sim     45s wall  | eta 281 min
+  [ 16/154] C4_s7      40/40    898s sim     42s wall  | eta 268 min
+  [ 17/154] C0_s8      40/40    274s sim     53s wall  | eta 257 min
+  [ 18/154] C1_s8      39/40    391s sim    230s wall  | eta 270 min
+  [ 19/154] C2_s8      28/40   2471s sim    226s wall  | eta 281 min
+  [ 20/154] C5_s8      38/40    581s sim    465s wall  | eta 317 min
+  [ 21/154] C3_s8      39/40    522s sim    438s wall  | eta 346 min
+  [ 22/154] C4_s8       5/40   4000s sim    157s wall  | eta 343 min
+  [ 23/154] C0_s9      39/40    686s sim    764s wall  | eta 398 min
+  [ 24/154] C1_s9      39/40    686s sim    503s wall  | eta 424 min
+  [ 25/154] C2_s9      39/40    790s sim     46s wall  | eta 408 min
+  [ 26/154] C5_s9      39/40    860s sim    386s wall  | eta 421 min
+  [ 27/154] C3_s9      40/40    460s sim     42s wall  | eta 406 min
+  [ 28/154] C4_s9      16/40    312s sim     10s wall  | eta 389 min
+  [ 29/154] C0_s10     40/40    406s sim    101s wall  | eta 380 min
+  [ 30/154] C1_s10     40/40    434s sim    116s wall  | eta 372 min
+  [ 31/154] C2_s10     34/40    666s sim     56s wall  | eta 361 min
+  [ 32/154] C5_s10     40/40    584s sim     55s wall  | eta 350 min
+  [ 33/154] C3_s10     38/40    950s sim    337s wall  | eta 357 min
+  [ 34/154] C4_s10     26/40    991s sim     30s wall  | eta 346 min
+  [ 35/154] C0_s11     39/40    802s sim    685s wall  | eta 372 min
+  [ 36/154] C1_s11     39/40    733s sim    599s wall  | eta 391 min
+  [ 37/154] C2_s11     39/40    638s sim     42s wall  | eta 380 min
+  [ 38/154] C5_s11     39/40    714s sim    119s wall  | eta 373 min
+  [ 39/154] C3_s11     39/40    714s sim    124s wall  | eta 366 min
+  [ 40/154] C4_s11     27/40   1223s sim     42s wall  | eta 356 min
+  [ 41/154] C0_s12     40/40    341s sim     53s wall  | eta 347 min
+  [ 42/154] C1_s12     40/40    328s sim     35s wall  | eta 337 min

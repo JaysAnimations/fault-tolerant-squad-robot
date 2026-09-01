@@ -1,0 +1,5 @@
+﻿wrong_position       C2  visited 39/40  truly 34  actions 0 premature 0  lat None  target None  susp []
+wrong_position       C3  visited 39/40  truly 39  actions 2 premature 0  lat 274.90000000000003  target True  susp [1]
+sensor_degradation   C2  visited 40/40  truly 40  actions 0 premature 0  lat None  target None  susp []
+sensor_degradation   C3  visited 40/40  truly 40  actions 2 premature 0  lat 27.400000000000002  target True  susp [1]
+smoke ok

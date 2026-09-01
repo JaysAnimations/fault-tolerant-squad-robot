@@ -1,0 +1,28 @@
+﻿seed 2024  fault wrong_position on robot 1 at step 1286
+
+quarantine needs 2 accusers, claim release needs 1
+
+--- robot 0 ---
+  accused itself of nothing; it accused : {}
+  heard from others                    : {1: {2: ['comms_loss'], 0: ['comms_loss', 'wrong_position']}, 2: {0: ['comms_loss', 'wrong_position']}, 0: {}}
+  corroborated() yields                : nothing
+
+--- robot 1 ---
+  accused itself of nothing; it accused : {2: ['comms_loss'], 0: ['comms_loss', 'wrong_position']}
+  heard from others                    : {0: {}, 2: {0: ['comms_loss', 'wrong_position']}, 1: {2: ['comms_loss'], 0: ['comms_loss', 'wrong_position']}}
+  corroborated: suspect 0 / comms_loss         accusers [1]  -> release only
+  corroborated: suspect 0 / wrong_position     accusers [1]  -> release only
+
+--- robot 2 ---
+  accused itself of nothing; it accused : {0: ['comms_loss', 'wrong_position']}
+  heard from others                    : {0: {}, 1: {2: ['comms_loss'], 0: ['comms_loss', 'wrong_position']}, 2: {0: ['comms_loss', 'wrong_position']}}
+  corroborated: suspect 0 / comms_loss         accusers [1]  -> release only
+  corroborated: suspect 0 / wrong_position     accusers [1]  -> release only
+
+recovery actions actually taken:
+  step  4850 by 1 vs 2 comms_loss         did=['released'] accusers=[1] cells=0
+  step  4875 by 0 vs 2 comms_loss         did=['released'] accusers=[1] cells=0
+  step  5750 by 1 vs 0 comms_loss         did=['released'] accusers=[1] cells=0
+  step  5775 by 2 vs 0 comms_loss         did=['released'] accusers=[1] cells=0
+  step  6400 by 1 vs 0 wrong_position     did=['released'] accusers=[1] cells=0
+  step  6425 by 2 vs 0 wrong_position     did=['released'] accusers=[1] cells=0
