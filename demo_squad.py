@@ -255,6 +255,9 @@ def run(seed=config.DEFAULT_SEED, verbose=True, use_prior=True,
                                     for m in squad),
              "recover": recover,
              "recovery": recovery_log,
+             # Which robots were broken on purpose. Analysis only -- used
+             # to pick a healthy robot to ask for the operator's map.
+             "fault_robots": sorted({r for r, _s, _n in injector.schedule}),
              "released": sorted(set().union(*[m.released for m in squad])
                                 if squad else set())}
     return facility, squad, points, deviations, history, trace, stats
@@ -270,6 +273,12 @@ def squad_metrics(facility, squad, points):
     # files an inspection it never performed. Scored on true positions,
     # which is analysis and never available to any robot.
     truly = [p for p in points if p.truly_visited]
+    # THE STRONGEST FINDING IN THE PROJECT, AS ITS OWN NUMBER. Points the
+    # squad has filed as inspected that nobody actually inspected. It was
+    # previously only obtainable by subtracting two columns, which buries
+    # it -- and a facility told fifteen gauges were checked when they were
+    # not has fifteen unmonitored failure points and no idea they exist.
+    falsely = [p for p in points if p.visited and not p.truly_visited]
     invalidated = [p for p in points if p.invalidated]
     unreachable = [p for p in points if p.unreachable]
     missed_reachable = [p for p in points
@@ -291,6 +300,7 @@ def squad_metrics(facility, squad, points):
     return {
         "visited": len(visited), "total": len(points),
         "believed": len(visited), "truly": len(truly),
+        "falsely_reported": len(falsely),
         "invalidated": len(invalidated),
         "unreachable": len(unreachable), "missed": len(missed_reachable),
         "success": len(missed_reachable) == 0,
@@ -345,6 +355,55 @@ def squad_map_metrics(facility, squad):
     else:
         err = 0.0
     return coverage, f1, err * 100.0
+
+
+def operator_map_metrics(facility, squad, faulty_ids=()):
+    """
+    Coverage, surface F1 and observed-cell error for the map the operator
+    actually receives: one healthy robot's own merged grid.
+
+    WHY THIS AND NOT THE UNION. The union in squad_map_metrics is an
+    analyst's construction -- nobody holds it, and it quietly includes
+    observations that never reached another robot. That makes it blind to
+    the two things it was being asked to measure:
+
+      a degraded robot is down-weighted to 0.25 in a merged grid, and
+      not down-weighted at all in a sum of raw observations, so the
+      treatment is discarded by the instrument;
+
+      a robot whose radio has died contributes nothing to anybody's
+      merged grid, but the union counts its observations as though the
+      squad had them.
+
+    A merged grid contains exactly what was successfully shared, weighted
+    by how much the receiver trusts each source. That is the honest
+    quantity: what the operator is handed at the end of the round.
+
+    The reporting robot is the lowest-numbered one with no fault injected
+    -- a deterministic choice, and the closest thing to "ask a robot that
+    is working properly". If every robot is faulty (C4, one robot) there
+    is nothing else to ask, so its own map is used and the report says so
+    by way of the condition.
+    """
+    healthy = [m for m in squad if m.id not in set(faulty_ids)]
+    reporter = healthy[0] if healthy else squad[0]
+    grid = reporter.grid
+
+    coverage = grid.coverage_fraction(facility) * 100.0
+    _prec, _rec, f1 = grid.surface_scores(facility)
+
+    # Score the error over cells this map has actually learned something
+    # about -- anywhere its belief has moved off the issued drawings.
+    base = grid.prior_L if grid.prior_L is not None else 0.0
+    evidence = (grid.L != base)
+    cls = grid.classified()
+    decided = evidence & (cls >= 0)
+    if decided.any():
+        truth = (facility.grid == 1).astype(np.int8)
+        err = float((cls[decided] != truth[decided]).sum() / decided.sum())
+    else:
+        err = 0.0
+    return coverage, f1, err * 100.0, reporter.id
 
 
 def contact_fraction(trace, squad_size, range_m=None):

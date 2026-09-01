@@ -6,10 +6,29 @@ own?
 
     python check_false_positives.py
 
-Runs condition C0 -- perfect drawings, no deviations, no faults, full
-fault tolerance -- across ten seeds. Nothing is broken in any of these
-runs, so every accusation is false by construction and every quarantine
-is the system damaging itself.
+Runs condition C1 -- OUT-OF-DATE DRAWINGS, no faults, full fault tolerance
+-- across ten seeds. Nothing is broken in any of these runs, so every
+accusation is false by construction and every quarantine is the system
+damaging itself.
+
+WHY C1 AND NOT C0, WHICH THIS USED TO RUN
+-----------------------------------------
+Because C0 is the one condition where the failure mode being gated cannot
+structurally fire. C0 has no deviations; C1 to C5 -- every condition the
+suite actually runs -- do.
+
+Deviations are what switch the Byzantine false positive on, and not by
+being mistaken for conflict: only 1.2 to 3.6 % of conflicting cells lie
+anywhere near one. They change ROUTING, and routing changes which robots
+share ground with which. The detector then normalises one pair's
+disagreement rate by another pair's, measured on a different patch of the
+facility, and reads the difference as a pose fault. See M3.
+
+Session 11's gate passed at 0 false quarantines in 10 C0 seeds and that
+was not a clean bill of health -- it was a measurement taken on the single
+case that removes the confound. Meanwhile healthy squads WITH deviations
+produced 2 false positives in 3 seeds, including one where a healthy robot
+was accused by both of its peers, which under C3 is a quarantine.
 
 WHY TEN SEEDS AND NOT THREE
 ---------------------------
@@ -43,7 +62,7 @@ SEEDS = (1, 2, 3, 4, 5, 7, 11, 13, 42, 2024)
 
 
 def main(seeds=SEEDS):
-    print(f"\nC0 -- healthy squad, {len(seeds)} seeds. "
+    print(f"\nC1 -- healthy squad WITH deviations, {len(seeds)} seeds. "
           "Every accusation here is false.\n")
     print(f"  {'seed':>6s} {'believed':>9s} {'truly':>7s} {'total':>6s} "
           f"{'accus':>6s} {'quaran':>7s} {'invalid':>8s} {'dur_s':>7s}  who")
@@ -51,7 +70,9 @@ def main(seeds=SEEDS):
 
     rows = []
     for seed in seeds:
-        out = demo_squad.run(seed, verbose=False, with_deviations=False)
+        # with_deviations=True is the whole point of this file now. See the
+        # module docstring: the C0 version of this gate could not fail.
+        out = demo_squad.run(seed, verbose=False, with_deviations=True)
         facility, squad, points, deviations, history, trace, stats = out
         m = demo_squad.squad_metrics(facility, squad, points)
 

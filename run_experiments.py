@@ -51,6 +51,10 @@ import numpy as np
 import config
 import demo_squad
 from demo_detect import score_run
+from deviations import inject_deviations
+from environment import Facility
+from faults import schedule_for_seed
+from inspection import generate_inspection_points
 
 
 # ---------------------------------------------------------------------
@@ -96,11 +100,17 @@ COLUMNS = [
     # thinks it inspected; `points_truly_visited` is what it actually did,
     # scored on true positions. The gap is the wrong-position fault's real
     # damage and it is a headline result, not bookkeeping.
-    "points_believed_visited", "points_truly_visited", "points_invalidated",
+    "points_believed_visited", "points_truly_visited",
+    "points_falsely_reported", "points_invalidated",
     "points_visited", "points_total", "points_unreachable", "mission_success",
     "duration_s", "total_energy_j", "energy_per_point_j", "energy_per_m2_j",
     "distance_total_m", "collisions", "robots_alive_at_end",
-    "coverage_pct", "surface_f1", "observed_error_pct",
+    # The operator's map -- one healthy robot's own merged grid, which is
+    # what actually gets handed over. The union columns are kept alongside
+    # as a secondary reading: the difference between them is data the
+    # squad saw but never managed to share.
+    "coverage_pct", "surface_f1", "observed_error_pct", "map_reporter",
+    "union_coverage_pct", "union_surface_f1", "union_observed_error_pct",
     "deviations_injected", "deviations_detected", "mean_detection_time_s",
     "fault_detected", "detection_latency_s", "false_positives",
     "quarantines_correct", "quarantines_wrong",
@@ -112,15 +122,8 @@ NA = -1          # "does not apply to this condition" -- never 0, never NaN
 
 
 def fault_for_seed(seed):
-    """
-    Which fault this seed gets, drawn from its own stream.
-
-    Its own stream so that adding a condition, or changing how many random
-    numbers a mission consumes, cannot change which fault seed 7 gets. The
-    fault has to be a property of the seed alone or the pairing breaks.
-    """
-    rng = np.random.default_rng([seed, config.RNG_STREAM_FAULTS])
-    return str(rng.choice(config.FAULT_TYPES))
+    """Which fault this seed gets. See faults.schedule_for_seed."""
+    return schedule_for_seed(seed)[2]
 
 
 def build_row(condition, seed, out, wall_s):
@@ -129,7 +132,9 @@ def build_row(condition, seed, out, wall_s):
     spec = CONDITIONS[condition]
 
     m = demo_squad.squad_metrics(facility, squad, points)
-    coverage, f1, obs_err = demo_squad.squad_map_metrics(facility, squad)
+    u_cov, u_f1, u_err = demo_squad.squad_map_metrics(facility, squad)
+    coverage, f1, obs_err, reporter = demo_squad.operator_map_metrics(
+        facility, squad, stats.get("fault_robots", ()))
 
     duration_s = stats["steps"] * config.DT_S
     visited = m["visited"]
@@ -137,11 +142,9 @@ def build_row(condition, seed, out, wall_s):
 
     # --- the fault, and whether anybody noticed ----------------------
     if spec["fault"]:
-        fault_type = fault_for_seed(seed)
-        fault_robot = (config.EXPERIMENT_FAULT_ROBOT if spec["robots"] > 1
-                       else 0)
-        fault_step = config.EXPERIMENT_FAULT_STEP
-        scored = score_run(out, fault_type)
+        robot = (config.EXPERIMENT_FAULT_ROBOT if spec["robots"] > 1 else 0)
+        fault_robot, fault_step, fault_type = schedule_for_seed(seed, robot)
+        scored = score_run(out, fault_type, fault_step)
         detected = 1 if scored["detected"] else 0
         latency = (scored["latency_s"] if scored["latency_s"] is not None
                    else NA)
@@ -163,7 +166,16 @@ def build_row(condition, seed, out, wall_s):
     # --- recovery -----------------------------------------------------
     actions = stats["recovery"]
     quarantines = [a for a in actions if a["rolled_back"]]
-    correct = sum(1 for a in quarantines if a["suspect"] == fault_robot)
+    # A QUARANTINE BEFORE THE FAULT IS A FALSE ONE, EVEN IF IT NAMES THE
+    # ROBOT THAT LATER BREAKS. M4: without the step test, a quarantine
+    # raised at step 400 against a robot injected at step 1076 counted as a
+    # correct diagnosis. It is not a diagnosis at all -- nothing was wrong
+    # with that robot yet. fault_step is NA (-1) on the fault-free
+    # conditions, where every quarantine is false anyway and the comparison
+    # below is never satisfied.
+    correct = sum(1 for a in quarantines
+                  if a["suspect"] == fault_robot
+                  and fault_step != NA and a["step"] >= fault_step)
     wrong = len(quarantines) - correct
     # WORK ACTUALLY TAKEN OFF THE SUSPECT, not work that merely happened
     # afterwards. The first version counted every point finished after the
@@ -194,6 +206,7 @@ def build_row(condition, seed, out, wall_s):
         "fault_step": fault_step,
         "points_believed_visited": m["believed"],
         "points_truly_visited": m["truly"],
+        "points_falsely_reported": m["falsely_reported"],
         "points_invalidated": m["invalidated"],
         "points_visited": visited,
         "points_total": m["total"],
@@ -209,6 +222,10 @@ def build_row(condition, seed, out, wall_s):
         "coverage_pct": round(coverage, 2),
         "surface_f1": round(f1, 4),
         "observed_error_pct": round(obs_err, 3),
+        "map_reporter": reporter,
+        "union_coverage_pct": round(u_cov, 2),
+        "union_surface_f1": round(u_f1, 4),
+        "union_observed_error_pct": round(u_err, 3),
         "deviations_injected": len(deviations),
         "deviations_detected": len(found),
         "mean_detection_time_s": (round(float(np.mean(det_times)), 1)
@@ -233,7 +250,7 @@ def run_one(condition, seed, save_trace=True):
     faults = []
     if spec["fault"]:
         robot = config.EXPERIMENT_FAULT_ROBOT if spec["robots"] > 1 else 0
-        faults = [(robot, config.EXPERIMENT_FAULT_STEP, fault_for_seed(seed))]
+        faults = [schedule_for_seed(seed, robot)]
 
     started = time.time()
     out = demo_squad.run(seed, verbose=False,
@@ -356,8 +373,57 @@ def validate(seed=7):
     return True, rows
 
 
+def deployable(seed):
+    """
+    Can a squad physically be put on the ground for this seed?
+
+    A deviation is seeded terrain -- something built since the drawings were
+    issued -- and on rare seeds one lands on top of a fixed start pose.
+    Seed 14 puts one on robot 2's spot at (11.5, 3.5), so demo_squad.run()
+    refuses to deploy, correctly: a robot cannot start inside an obstacle.
+    C0 is unaffected because it has no deviations, which is exactly how the
+    suite found this -- C0_s14 ran and C1_s14 raised.
+
+    CHECKED UP FRONT RATHER THAN CAUGHT MID-RUN. If it were caught as it
+    happened, results.csv would already hold that seed's C0 row and the seed
+    would be half-paired -- one condition present, five missing -- which is
+    worse than absent, because every later aggregation would silently
+    average an unbalanced seed into the C0 column.
+
+    Building the facility and the deviations costs a second or two per seed
+    and no mission is run, so the whole scan is cheap next to one run.
+    """
+    facility = Facility()
+    ranker = demo_squad.reachability_planner(facility)
+    points = generate_inspection_points(facility, seed, ranker)
+    inject_deviations(facility, points, seed, ranker, verbose=False)
+
+    # Every condition deploys from the same fixed poses; C4 uses only the
+    # first. Test the full squad, since one blocked pose sinks the seed.
+    for x, y, _th in config.SQUAD_START_POSES[:config.SQUAD_SIZE]:
+        if not facility._has_clearance(x, y, config.ROBOT_RADIUS_M + 0.3):
+            return False, (x, y)
+    return True, None
+
+
 def main(seeds=None):
     seeds = list(config.EXPERIMENT_SEEDS if seeds is None else seeds)
+
+    # Drop any seed the squad cannot be deployed into, and say so loudly.
+    # An excluded seed is a reported limitation, not a silent gap.
+    usable, excluded = [], []
+    for seed in seeds:
+        ok, where = deployable(seed)
+        (usable if ok else excluded).append(seed if ok else (seed, where))
+    if excluded:
+        print("\n  EXCLUDED SEEDS -- a seeded deviation blocks a start pose:")
+        for seed, where in excluded:
+            print(f"    seed {seed}: start pose at {where} is inside an "
+                  f"obstacle in every condition that has deviations")
+        print("  These seeds are dropped from ALL conditions so the suite "
+              "stays paired.\n")
+    seeds = usable
+
     done = already_done(config.RESULTS_CSV)
     todo = [(c, s) for s in seeds for c in CONDITION_ORDER
             if f"{c}_s{s}" not in done]

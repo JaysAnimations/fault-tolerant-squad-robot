@@ -1,0 +1,23 @@
+
+C0 -- healthy squad, 10 seeds. Every accusation here is false.
+
+    seed  believed   truly  total  accus  quaran  invalid   dur_s  who
+--------------------------------------------------------------------------------------
+       1        40      40     40      0       0        0     341  
+       2        40      40     40      0       0        0     390  
+       3        40      40     40      0       0        0     335  
+       4        40      40     40      1       0        0     349  
+       5        40      40     40      0       0        0     393  
+       7        40      40     40      0       0        0     336  
+      11        39      39     40      0       0        0     802  
+      13        40      40     40      1       0        0     372  
+      42        40      40     40      0       0        0     399  
+    2024        39      39     39      0       0        0     347  
+--------------------------------------------------------------------------------------
+  runs with a false accusation : 2/10 (20 %)
+  runs with a false QUARANTINE : 0/10 (0 %)   <-- the gate
+  completions thrown away      : 0
+  believed 398/399   truly 398/399   gap +0
+
+  FALSE-QUARANTINE RATE 0 %  -> PASS (gate is under 10 %)
+

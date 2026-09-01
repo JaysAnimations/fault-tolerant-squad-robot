@@ -42,7 +42,32 @@ argument for having three robots and taking a vote, and it is the reason
 this project is about fault tolerance rather than fault avoidance.
 """
 
+import numpy as np
+
 import config
+
+
+def schedule_for_seed(seed, robot_id=None):
+    """
+    Which fault this seed gets, and when. Returns (robot, step, name).
+
+    ONE PLACE, SO EVERY CONDITION AGREES. The fault has to be a property
+    of the seed and nothing else: if the arm could change which fault
+    fires or when, C2 and C3 would be running different experiments and
+    the paired comparison would be worthless. Drawn from the fault stream,
+    which no other part of the simulation touches.
+
+    The name is drawn before the step, so adding the timing draw did not
+    change which fault any existing seed gets.
+    """
+    if robot_id is None:
+        robot_id = config.EXPERIMENT_FAULT_ROBOT
+    rng = np.random.default_rng([seed, config.RNG_STREAM_FAULTS])
+    name = str(rng.choice(config.FAULT_TYPES))
+    fraction = float(rng.uniform(config.FAULT_TIMING_MIN_FRACTION,
+                                 config.FAULT_TIMING_MAX_FRACTION))
+    step = int(fraction * config.EXPECTED_MISSION_STEPS)
+    return robot_id, step, name
 
 
 def _apply_sensor_degradation(member):

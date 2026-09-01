@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt
 
 import config
 import demo_squad
+from faults import schedule_for_seed
 
 SEEDS = [42, 7, 2024]
 VICTIM = config.FAULT_DEMO_ROBOT
@@ -57,18 +58,37 @@ ARMS = {
 
 
 def measure(seed, fault, arm):
+    # Injection time is drawn per seed and is the same in every arm, so
+    # the three conditions stay a paired comparison. The fault TYPE is
+    # overridden here because this file sweeps all five deliberately.
+    _r, when, _n = schedule_for_seed(seed, VICTIM)
     out = demo_squad.run(seed, verbose=False,
-                         faults=[(VICTIM, WHEN, fault)], **ARMS[arm])
+                         faults=[(VICTIM, when, fault)], **ARMS[arm])
     facility, squad, points, deviations, history, trace, stats = out
     m = demo_squad.squad_metrics(facility, squad, points)
 
     actions = stats["recovery"]
-    first = min((a["step"] for a in actions), default=None)
+
+    # A RESPONSE TO A FAULT CANNOT PRECEDE THE FAULT. This is M4's scoring
+    # half. Latency used to be measured from the first recovery action of
+    # any kind, so an action taken before the injection produced a NEGATIVE
+    # latency -- and worse, an action against the robot that would later
+    # break was scored as having caught it. Actions before `when` are
+    # false positives and are counted as such, not as early detections.
+    premature = [a for a in actions if a["step"] < when]
+    responses = [a for a in actions if a["step"] >= when]
+    first = min((a["step"] for a in responses), default=None)
 
     # Who did the squad actually act against? On a good run this is the
-    # robot that was broken; it is worth reporting when it is not.
-    suspects = sorted({a["suspect"] for a in actions})
+    # robot that was broken; it is worth reporting when it is not. Scored
+    # over the responses only, for the same reason as the latency.
+    suspects = sorted({a["suspect"] for a in responses})
     correct = (suspects == [VICTIM]) if suspects else None
+
+    # Everyone the squad acted against at any point, which is what the
+    # reallocation count below has to exclude -- work taken off a robot
+    # before the fault is still work taken off it.
+    all_suspects = {a["suspect"] for a in actions}
 
     # Work finished after the squad acted, by somebody other than the
     # robot it acted against. This is the reallocation, counted.
@@ -78,30 +98,35 @@ def measure(seed, fault, arm):
             released.setdefault(index, a["step"])
     by_index = {p.index: p for p in points}
     reallocated = sum(
-        1 for index, when in released.items()
+        1 for index, released_at in released.items()
         if (by_index.get(index) is not None
             and by_index[index].visited
             and by_index[index].visit_step is not None
-            and by_index[index].visit_step > when
-            and by_index[index].visited_by not in suspects))
+            and by_index[index].visit_step > released_at
+            and by_index[index].visited_by not in all_suspects))
 
-    coverage, f1, obs_err = demo_squad.squad_map_metrics(facility, squad)
+    # The operator's map: one healthy robot's own merged grid, which is
+    # what actually gets handed over at the end of the round.
+    coverage, f1, obs_err, _who = demo_squad.operator_map_metrics(
+        facility, squad, stats.get("fault_robots", ()))
 
     return {
-        "seed": seed, "fault": fault, "arm": arm,
+        "seed": seed, "fault": fault, "arm": arm, "when": when,
         "visited": m["visited"], "total": m["total"],
         "believed": m["believed"], "truly": m["truly"],
+        "falsely": m["falsely_reported"],
         "invalidated": m["invalidated"],
         "success": m["success"],
         "coverage": coverage, "f1": f1, "obs_err": obs_err,
         "duplicated": m["redundancy"] * 100.0,
         "duration": stats["steps"] * config.DT_S,
         "energy": m["energy"],
-        "latency_s": ((first - WHEN) * config.DT_S
+        "latency_s": ((first - when) * config.DT_S
                       if first is not None else None),
         "cells_restored": sum(a["cells_restored"] for a in actions),
         "reallocated": reallocated,
         "actions": len(actions),
+        "premature": len(premature),
         "suspects": suspects,
         "correct_target": correct,
     }
@@ -112,17 +137,38 @@ def measure(seed, fault, arm):
 # all, so a "points visited" table asks four of the five faults a question
 # they were never going to answer.
 SCORING = {
+    # Map accuracy, scored on the OPERATOR'S map -- one healthy robot's
+    # merged grid. The union of raw observations was blind to this fault
+    # by construction: it ignores the trust weighting that is the entire
+    # response to a degraded sensor.
     "sensor_degradation": [("surface F1", "f1", "hi", "{:.3f}"),
                            ("observed err %", "obs_err", "lo", "{:.2f}")],
-    "wrong_position":     [("truly inspected", "truly", "hi", "{:.0f}"),
-                           ("believed", "believed", "-", "{:.0f}"),
+    "wrong_position":     [("truly inspected", "truly", "hi", "{:.1f}"),
+                           ("falsely reported", "falsely", "lo", "{:.1f}"),
                            ("observed err %", "obs_err", "lo", "{:.2f}")],
-    "comms_loss":         [("duplicated %", "duplicated", "lo", "{:.1f}"),
-                           ("coverage %", "coverage", "hi", "{:.2f}")],
-    "immobilised":        [("points visited", "visited", "hi", "{:.0f}"),
-                           ("missions ok", "success", "hi", "{:.0f}")],
-    "battery_drain":      [("points visited", "visited", "hi", "{:.0f}"),
-                           ("missions ok", "success", "hi", "{:.0f}")],
+    # Map COMPLETENESS, not duplicated coverage. Under a static partition
+    # duplication measures how much reallocation happened, not what the
+    # fault cost. A robot whose radio is dead contributes nothing to
+    # anybody's merged grid, so its share of the site is simply missing
+    # from what the operator receives.
+    "comms_loss":         [("coverage %", "coverage", "hi", "{:.2f}"),
+                           ("surface F1", "f1", "hi", "{:.3f}")],
+    # POINTS VISITED ONLY -- the mission-success row is SATURATED here and
+    # was removed as a scoring criterion in Session 13. It read 0/3 in all
+    # three arms, and it cannot do otherwise: success demands every point,
+    # the immobilised robot is stationary, and the points it is parked on
+    # top of are the ones nobody can reach. C5 visits 37 of 40 and still
+    # scores zero. A metric that returns the same answer whatever the
+    # treatment is not measuring the treatment.
+    #
+    # Points visited does discriminate -- 31 / 37 / 32.3 in Session 12 --
+    # so that is what this fault is scored on. The saturation stays in the
+    # per-fault success table below as a reported limitation rather than
+    # being quietly dropped: at three seeds, mission success cannot
+    # separate the arms on this fault at all.
+    "immobilised":        [("points visited", "visited", "hi", "{:.1f}")],
+    "battery_drain":      [("points visited", "visited", "hi", "{:.1f}"),
+                           ("missions ok", "success", "hi", "{:.2f}")],
 }
 
 
@@ -155,6 +201,22 @@ def _per_fault_scoring(rows):
             print(f"  {name:<20s} {label:<17s} {direction:<4s} "
                   + "".join(f"{fmt.format(vals[a]):>9s}" for a in ARMS)
                   + f"  {verdict}")
+
+    # MISSION SUCCESS PER FAULT, not aggregated. The aggregate hides that
+    # the squad copes with four fault types and struggles with one.
+    print("-" * 96)
+    print("  MISSION SUCCESS AND FALSE REPORTS, PER FAULT")
+    print(f"  {'fault':<20s} {'success C2/C5/C3':>20s} "
+          f"{'falsely reported C2/C5/C3':>28s}")
+    for fault in config.FAULT_TYPES:
+        got = {a: [r for r in rows if r["fault"] == fault and r["arm"] == a]
+               for a in ARMS}
+        succ = "/".join(str(sum(1 for r in got[a] if r["success"]))
+                        for a in ARMS)
+        false = "/".join(str(sum(r["falsely"] for r in got[a]))
+                         for a in ARMS)
+        n = len(got["C2"])
+        print(f"  {fault:<20s} {succ + f' of {n}':>20s} {false:>28s}")
 
 
 def main():
@@ -220,6 +282,12 @@ def main():
         print(f"  WRONG ROBOT quarantined in {len(wrong)} run(s): "
               + ", ".join(f"seed {r['seed']}/{r['fault']} -> {r['suspects']}"
                           for r in wrong))
+    # Actions taken BEFORE the fault was injected. These are false
+    # positives however they are labelled, and counting them separately is
+    # M4's scoring half -- they used to be absorbed into the latency as a
+    # negative number and into the target column as a correct diagnosis.
+    early = sum(r["premature"] for r in rows if r["arm"] == "C3")
+    print(f"  Recovery actions taken BEFORE the fault existed: {early}")
     print("=" * 96 + "\n")
 
     _figure(rows)

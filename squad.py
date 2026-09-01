@@ -472,10 +472,17 @@ class SquadMember:
             # global count.
             outstanding = max(0, len(points) - len(self.done))
 
+            # How far through its own round this robot believes it is. The
+            # sensor and Byzantine detectors both refuse to accuse anybody
+            # before a quarter of it is done -- see SENSOR_MIN_PROGRESS.
+            # Measured on what this robot knows about itself, because it
+            # cannot know how long the mission will turn out to be.
+            progress = len(self.done) / max(len(points), 1)
+
             for peer_id in peer_ids:
                 if peer_id == self.id:
                     continue
-                self.detector.check_sensor_degradation(peer_id, step)
+                self.detector.check_sensor_degradation(peer_id, step, progress)
                 self.detector.check_immobilised(peer_id, step)
                 self.detector.check_battery(peer_id, step, outstanding,
                                             len(peer_ids))

@@ -1,4 +1,4 @@
-"""
+﻿"""
 demo_detect.py
 ==============
 STEP 4: does the squad notice?
@@ -46,12 +46,18 @@ VICTIM = config.FAULT_DEMO_ROBOT
 WHEN = config.FAULT_DEMO_STEP
 
 
-def score_run(out, fault):
+def score_run(out, fault, when=None):
     """
     Scoring rules for one completed run, kept in one place so the sweep in
     sweep_comms.py and this file cannot drift apart on what counts as a
     detection.
+
+    `when` is the step the fault was injected. It has to be passed in now
+    that injection time is drawn per seed -- a module-level constant would
+    silently score every run against the wrong instant.
     """
+    if when is None:
+        when = WHEN
     facility, squad, points, deviations, history, trace, stats = out
 
     detections = stats["detections"]
@@ -65,7 +71,7 @@ def score_run(out, fault):
     hit_step = None
     if fault is not None:
         found = detections.get(VICTIM, {}).get(fault)
-        if found is not None and found[0] >= WHEN:
+        if found is not None and found[0] >= when:
             hit_step = found[0]
 
     # Anything said about a robot that is not broken, about a broken robot
@@ -74,7 +80,7 @@ def score_run(out, fault):
     for accused_id, faults_seen in detections.items():
         for name, (step, accusers) in faults_seen.items():
             correct = (fault is not None and accused_id == VICTIM
-                       and name == fault and step >= WHEN)
+                       and name == fault and step >= when)
             if correct:
                 continue
             false_positives.append((accused_id, name, step, accusers))
@@ -82,7 +88,7 @@ def score_run(out, fault):
     return {
         "fault": fault or "none (control)",
         "detected": hit_step is not None,
-        "latency_s": ((hit_step - WHEN) * config.DT_S
+        "latency_s": ((hit_step - when) * config.DT_S
                       if hit_step is not None else None),
         "accusers": (detections.get(VICTIM, {}).get(fault, (None, []))[1]
                      if fault is not None else []),

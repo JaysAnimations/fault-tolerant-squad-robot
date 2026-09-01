@@ -62,6 +62,13 @@ class OccupancyGrid:
         # registry of spatial transactions" described in Moroncelli et al.
         self._contributions = {}
 
+        # How much RAW observation we have already taken from each source,
+        # before any trust weight was applied. merge_from needs this to
+        # work out what is NEW in a packet; _contributions cannot answer
+        # that question once the weight has changed, because it holds the
+        # weighted total rather than the evidence. See merge_from.
+        self._raw_merged = {}
+
         self.step_m = config.LIDAR_RAY_STEP_M
 
     # -----------------------------------------------------------------
@@ -198,17 +205,49 @@ class OccupancyGrid:
         keeps. Merging an unchanged map is then a no-op, and the ledger
         still holds the total contributed by that robot, so quarantining it
         later removes exactly what it gave us.
+
+        THE WEIGHT APPLIES TO THE INCREMENT, NOT THE TOTAL. This is M1, and
+        it was a real bug. The old version stored `raw * weight` as the
+        source's total and replaced it on every merge, so the first packet
+        arriving after a robot's trust dropped 1.0 -> 0.25 applied
+        `0.25*raw_now - 1.0*raw_earlier`. That does not mean "count this
+        robot's new evidence less"; it means "retroactively scale down
+        everything this robot has ever said", including all the correct
+        mapping it did BEFORE its sensor degraded. It was the whole cause
+        of the sensor_degradation collapse -- C3 surface F1 0.530 against
+        C2's 0.686, observed error 8.56 % against 0.95 %.
+
+        Two ledgers are therefore kept, and the distinction is the fix:
+
+          _raw_merged[source]    what that robot has told us, unweighted.
+                                 Only ever used to work out what is new.
+          _contributions[source] what we actually added to self.L on its
+                                 behalf, accumulated across merges at
+                                 whatever weight was current each time.
+                                 rollback() subtracts this, so it still
+                                 removes the full accumulated contribution.
+
+        Evidence already merged keeps the weight it was applied under. A
+        robot that maps well for 450 steps and then goes blind keeps the
+        450 steps.
         """
-        payload = other.own_observations() * weight
-        previous = self._contributions.get(source_id)
+        raw = other.own_observations()
         if source_id is None:
             # Untracked merge: no provenance, so no rollback and no
             # protection against double counting. Present for completeness;
             # the squad always passes a source_id.
-            self.L += payload
+            self.L += raw * weight
         else:
-            self.L += payload if previous is None else payload - previous
-            self._contributions[source_id] = payload.copy()
+            seen_before = self._raw_merged.get(source_id)
+            increment = raw if seen_before is None else raw - seen_before
+            payload = increment * weight
+
+            self.L += payload
+            if source_id in self._contributions:
+                self._contributions[source_id] += payload
+            else:
+                self._contributions[source_id] = payload
+            self._raw_merged[source_id] = raw.copy()
         np.clip(self.L, -config.LOG_ODDS_CLAMP, config.LOG_ODDS_CLAMP,
                 out=self.L)
 
@@ -231,6 +270,13 @@ class OccupancyGrid:
             np.clip(self.L, -config.LOG_ODDS_CLAMP, config.LOG_ODDS_CLAMP,
                     out=self.L)
             del self._contributions[source_id]
+            # Forget what we had taken from it as well, or a later merge
+            # from the same robot would add only the delta since the
+            # rollback on top of a contribution we have just removed.
+            # Un-quarantining therefore re-applies the whole map at the
+            # weight current at that time, which is the correct "start
+            # again from nothing" reading.
+            self._raw_merged.pop(source_id, None)
             return True
         return False
 
@@ -365,6 +411,82 @@ class OccupancyGrid:
         decided = seen & (belief_a >= 0) & (belief_b >= 0)
         conflict = int((belief_a[decided] != belief_b[decided]).sum())
         return conflict, overlap
+
+    def contribution_conflicts_common(self, sources):
+        """
+        Every pairwise conflict rate for a group of robots, all measured
+        over the cells that EVERY one of them has evidence for.
+
+        WHY THE COMMON REGION AND NOT EACH PAIR'S OWN OVERLAP -- this is M3,
+        and it was convicting healthy robots.
+
+        contribution_conflict() above measures a pair over whatever ground
+        that pair happens to share. The Byzantine test then divides one such
+        rate by another, so it compares two numbers computed on DIFFERENT
+        PATCHES OF THE FACILITY. Mapping difficulty is not uniform across
+        the site: a pair that overlapped mostly on the open perimeter road
+        shows a low rate, and any robot whose overlap fell among the pipe
+        racks looks displaced by comparison.
+
+        Deviations are what switch this on, and not for the obvious reason.
+        They do not create the conflict -- only 1.2 to 3.6 % of conflicting
+        cells lie anywhere near one. What they change is ROUTING: robots
+        detour around obstacles the drawings do not show, and therefore who
+        ends up sharing ground with whom. Seed 42 with no fault injected at
+        all: adding deviations collapsed the r1-r2 overlap from 81,723 cells
+        to 56,913 while r0-r1 grew to 108,731, and the ratio against a
+        perfectly healthy robot 0 went from 0.79 to 3.28 against a threshold
+        of 1.4. The test was reading a difference in WHERE THE ROBOTS MET as
+        evidence of a pose fault.
+
+        Restricting all three rates to the common region removes that by
+        construction. Every numerator and the single shared denominator now
+        describe the same cells, so the ratio compares like with like. This
+        changes WHAT IS SAMPLED, not any threshold.
+
+        The cost is sample size -- the three-way intersection is smaller
+        than any pairwise overlap -- which is why the caller applies
+        BYZANTINE_MIN_TRIPLE_OVERLAP_CELLS rather than the pairwise floor.
+
+        Returns (rates, overlap): rates keyed by frozenset({a, b}), and the
+        size of the common region, which is the same for every pair. That
+        shared denominator is the entire point.
+        """
+        held = {}
+        for source in sources:
+            contribution = self._contributions.get(source)
+            if contribution is None:
+                return {}, 0        # somebody has told us nothing yet
+            held[source] = contribution
+
+        seen_all = None
+        for contribution in held.values():
+            mine = (contribution != 0.0)
+            seen_all = mine if seen_all is None else (seen_all & mine)
+
+        overlap = int(seen_all.sum())
+        if overlap == 0:
+            return {}, 0
+
+        # What the map would say on each robot's evidence alone -- its own
+        # observations on top of the drawings everybody was issued.
+        base = self.prior_L
+        belief = {}
+        for source, contribution in held.items():
+            belief[source] = classify(base + contribution if base is not None
+                                      else contribution)
+
+        rates = {}
+        ids = sorted(held)
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                a, b = belief[ids[i]], belief[ids[j]]
+                # A cell only counts against somebody if both robots have
+                # actually made their minds up about it.
+                decided = seen_all & (a >= 0) & (b >= 0)
+                conflict = int((a[decided] != b[decided]).sum())
+                rates[frozenset((ids[i], ids[j]))] = conflict / overlap
+        return rates, overlap
 
     def contradicts_prior(self, tolerance_cells=None):
         """

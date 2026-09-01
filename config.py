@@ -686,6 +686,28 @@ FAULT_BATTERY_DRAIN_MULTIPLIER = 25.0
 FAULT_DEMO_STEP = 1200
 FAULT_DEMO_ROBOT = 1
 
+# --- WHEN the fault fires ---------------------------------------------
+# Every fault used to fire at step 1200. That measures one point on a
+# curve and reports it as the answer: a fault at 10 % of the round and a
+# fault at 90 % are different experiments, and the difference is exactly
+# what fault tolerance is for. An early fault leaves most of a robot's
+# lane unvisited and should be devastating without reallocation and
+# survivable with it; a late one costs almost nothing either way.
+#
+# So the step is drawn per seed, from the fault stream, and is therefore
+# IDENTICAL in every condition that seed appears in. Paired seeding
+# requires the fault to be a property of the seed, not of the arm.
+#
+# The fraction is of an EXPECTED round rather than the actual one,
+# because the actual duration is not known until the round has been run
+# -- and it depends on the condition, which would break the pairing. 5000
+# steps is the measured middle of the range: healthy rounds finish in
+# roughly 3,500 to 9,000 steps. So faults land between 500 and 2,500
+# steps, which is 10-50 % of a typical round.
+EXPECTED_MISSION_STEPS = 5000
+FAULT_TIMING_MIN_FRACTION = 0.10
+FAULT_TIMING_MAX_FRACTION = 0.50
+
 
 # =====================================================================
 # 16. THE EXPERIMENT SUITE  (Step 6)
@@ -892,8 +914,34 @@ PEER_PREDICTION_SPEED_FRACTION = 0.8
 # the discriminating.
 SENSOR_VALID_RATIO_MIN = 0.30
 SENSOR_RANGE_VARIANCE_MIN = 1.5
-SENSOR_MIN_HEARTBEATS = 3            # three bad reports running, so one
+
+# CHANGED IN SESSION 13: 3 -> 5. Flagged rather than slipped in, because it
+# is an experimental parameter and it moves results.
+#
+# Why: M4. This detector never received the persistence and progress gating
+# the Byzantine detector was given in Session 11, and it showed. On seed 7,
+# robot 1 was accused of a degraded sensor at step 400 in all five runs for
+# a fault injected at step 1076 -- scored as a correct detection only
+# because the suspect happened to be the eventual victim. Five consecutive
+# bad reports is the same shape of rule as BYZANTINE_MIN_CHECKS = 5.
+#
+# What it costs: detection latency on a genuine fault, roughly two extra
+# heartbeats, ~25 s. That is the right thing to spend here -- an accusation
+# made before the fault exists is worse than a late one, because it flatters
+# the detector twice: it counts a hit AND hides a miss.
+SENSOR_MIN_HEARTBEATS = 5            # five bad reports running, so one
                                      # awkward corner is not an accusation
+
+# The other half of M4, and a new parameter rather than a changed one.
+# Deliberately the same value as BYZANTINE_MIN_PROGRESS: the argument is
+# identical, and two numbers that mean the same thing should not be able to
+# drift apart. Early in a round the squad is still on the perimeter road,
+# which produces exactly the signature this detector looks for -- few
+# returns, all of them uniformly distant. Open ground mimicking a degraded
+# sensor is a known limitation of this test (Session 7), and refusing to
+# judge until the round is a quarter done is what stops it becoming an
+# accusation.
+SENSOR_MIN_PROGRESS = 0.25
 
 # --- wrong position ---------------------------------------------------
 # THE ONE THAT NEEDS THREE ROBOTS. A pairwise disagreement tells you that
@@ -989,6 +1037,37 @@ BYZANTINE_MIN_OVERLAP_CELLS = 30000  # ~300 m2 of genuinely shared ground.
                                      # healthy robots 10 s into the mission,
                                      # on an overlap of a few hundred cells
                                      # at the fringe of both sensors.
+                                     # SUPERSEDED IN SESSION 13 by the floor
+                                     # below. Kept because it records why a
+                                     # floor is needed at all, and because
+                                     # contribution_conflict() -- which it
+                                     # guarded -- is still the method the
+                                     # Chapter 4 explanation is written
+                                     # against.
+
+# THE SAMPLE THE BYZANTINE TEST ACTUALLY RUNS ON, SINCE SESSION 13.
+# M3: all three pairwise rates are now measured over the cells all three
+# robots have seen, so that the ratio compares like with like. That region
+# is necessarily smaller than any one pair's overlap, so it needs its own
+# floor rather than inheriting the pairwise one.
+#
+# Measured over 575 checks on six healthy C1 seeds (the probe is recorded in
+# Session 13's log):
+#
+#     triple-overlap size   p10  8,223   p25 13,366   median 15,812
+#     pairwise overlap      median 31,969
+#
+# so the common region runs about half a pair's overlap, and the old 30,000
+# would admit only 10 % of checks -- a detector that is silent for nine
+# tenths of the round is safe in the same way an unplugged one is.
+#
+# 10,000 admits 87 % of checks while excluding the thin tail below p25. The
+# false-positive work is not being done by this number: on healthy C1 seeds
+# the detector's full rule flags 21 judgements of 187 admitted checks on the
+# pairwise basis and 1 of 575 on the triple basis, and that holds for every
+# floor from 0 to 30,000. The floor is here to stop a small sample, not to
+# carry the fix.
+BYZANTINE_MIN_TRIPLE_OVERLAP_CELLS = 10000
 
 # THESE THREE GATES EXIST BECAUSE THE DETECTOR WAS OVERFITTED.
 # Tuned on three seeds it scored 3/3 with no false positives, and on the

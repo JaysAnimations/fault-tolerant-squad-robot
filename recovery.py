@@ -119,6 +119,34 @@ def corroborated(member):
     conclusions, not observations, and each one reached its own
     independently. Two robots agreeing is two separate measurements
     agreeing, which is what makes the corroboration worth anything.
+
+    TWO THINGS A NAIVE TALLY GETS WRONG -- this is M2, and it cost seed 42
+    a healthy robot: accusers [1, 2] against suspect 0, where robot 1 was
+    the injected victim. 129,383 cells rolled back, 14 inspections thrown
+    away, and the robot that was actually broken never touched.
+
+      1. A ROBOT THAT IS ITSELF ON TRIAL DOES NOT GET A VOTE. The
+         two-accuser rule assumes two accusers are two independent healthy
+         measurements. When one of them IS the patient, what you have is
+         one honest mistake plus the fault itself, agreeing.
+
+      2. AT MOST ONE ROBOT IN THREE IS FAULTY, so accusations pointing in
+         several directions cannot all be true. Rather than acting on
+         everyone named, the squad resolves to the robot the most peers
+         have named and dismisses the rest. Acting on all of them is how a
+         single displaced robot took a healthy one down with it.
+
+    Both rules only bite when accusations point in more than one direction.
+    On a clean detection -- which is what the arithmetic in
+    check_wrong_position produces, because a displaced robot disagrees with
+    both peers and so accuses nobody -- there is exactly one suspect, no
+    accuser is under suspicion, and nothing here changes the outcome.
+
+    A note on the isolated robot, because it looks like it should break:
+    a robot whose radio is dead accuses everybody, but nobody hears it. Its
+    accusations never reach anyone else's heard_suspicions, so they cannot
+    make its healthy peers look accused, and comms-loss reallocation is
+    unaffected.
     """
     tally = {}
 
@@ -131,10 +159,33 @@ def corroborated(member):
             for fault in faults:
                 tally.setdefault((suspect, fault), set()).add(accuser)
 
+    if not tally:
+        return
+
+    # Who is under an accusation of any kind, and how many distinct robots
+    # have named each of them. Faults are pooled for this count: the
+    # question is "who does the squad think is broken", not "broken how".
+    named_by = {}
+    for (suspect, fault), accusers in tally.items():
+        named_by.setdefault(suspect, set()).update(accusers)
+    accused = set(named_by)
+
+    # Rule 2: resolve to the most-accused robot. Ties break to the lowest
+    # id purely so the run stays deterministic -- on a tie neither reaches
+    # a quarantine quorum anyway, once rule 1 has been applied.
+    primary = min(accused, key=lambda s: (-len(named_by[s]), s))
+
     for (suspect, fault), accusers in tally.items():
         if suspect == member.id:
             continue          # nobody acts on accusations against itself
-        yield suspect, fault, sorted(accusers)
+        if suspect != primary:
+            continue          # at most one of us is broken, and it is not this one
+
+        # Rule 1: drop any accuser that is itself under accusation.
+        independent = sorted(a for a in accusers if a not in accused)
+        if not independent:
+            continue
+        yield suspect, fault, independent
 
 
 def _invalidate_completions(member, suspect, points):

@@ -276,7 +276,7 @@ class FaultDetector:
     # =================================================================
     # Detector 1 of 5: sensor degradation
     # =================================================================
-    def check_sensor_degradation(self, peer_id, step):
+    def check_sensor_degradation(self, peer_id, step, progress=1.0):
         """
         A LiDAR that has stopped seeing properly.
 
@@ -302,7 +302,25 @@ class FaultDetector:
 
         Then it must persist. One bad window is a robot in an awkward
         corner; SENSOR_MIN_HEARTBEATS in a row is a broken sensor.
+
+        AND IT MUST NOT FIRE IN THE FIRST QUARTER OF THE ROUND. This is M4.
+        The Byzantine detector was given a progress gate in Session 11 and
+        this one was not, and it showed: on seed 7 robot 1 was accused of a
+        degraded sensor at step 400 in all five runs, for a fault that was
+        injected at step 1076. It scored as a correct detection purely
+        because the suspect happened to be the robot that would later
+        break -- a false positive wearing the right label. That is where the
+        negative detection latencies came from.
+
+        Early in a round the squad is still on the perimeter road, which is
+        exactly the geometry this test cannot tell from a failing LiDAR:
+        few returns, and what does come back is uniformly distant. The gate
+        costs detection latency on a genuinely early fault and buys back
+        every accusation made before there was anything to accuse.
         """
+        if progress < config.SENSOR_MIN_PROGRESS:
+            return
+
         record = self.peers.get(peer_id)
         if record is None:
             return
@@ -365,13 +383,17 @@ class FaultDetector:
         # Comparing the two PEERS against each other is the part that makes
         # the test comparative: it measures how much the rest of the squad
         # agrees among itself, which is this run's drift level.
-        rates = {}
-        for i in range(len(ids)):
-            for j in range(i + 1, len(ids)):
-                conflict, overlap = grid.contribution_conflict(ids[i], ids[j])
-                if overlap < config.BYZANTINE_MIN_OVERLAP_CELLS:
-                    return  # not enough shared ground to judge anybody yet
-                rates[frozenset((ids[i], ids[j]))] = conflict / overlap
+        #
+        # MEASURED ON ONE COMMON PATCH OF GROUND, NOT THREE DIFFERENT ONES.
+        # This is M3. The previous version took each pair's own overlap, so
+        # the numerator and the denominator of the ratio below came from
+        # different parts of the facility -- and deviations, by changing
+        # everyone's routing, change which parts. On seed 42 with nothing
+        # broken that convicted a healthy robot at 3.28x against a threshold
+        # of 1.4. See OccupancyGrid.contribution_conflicts_common.
+        rates, overlap = grid.contribution_conflicts_common(ids)
+        if overlap < config.BYZANTINE_MIN_TRIPLE_OVERLAP_CELLS:
+            return      # not enough ground all three have seen to judge on
 
         # Score every candidate, then act on AT MOST ONE of them.
         #
