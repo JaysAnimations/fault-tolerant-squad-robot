@@ -3,3 +3,12 @@ demo_single EXIT=0
 ########## demo_explore ##########
 demo_explore EXIT=0
 ########## demo_inspect ##########
+demo_inspect EXIT=0
+########## demo_squad ##########
+demo_squad EXIT=0
+########## demo_faults ##########
+demo_faults EXIT=0
+########## demo_detect ##########
+demo_detect EXIT=0
+########## demo_recover ##########
+demo_recover EXIT=0
