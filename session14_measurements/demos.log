@@ -1,0 +1,5 @@
+########## demo_single ##########
+demo_single EXIT=0
+########## demo_explore ##########
+demo_explore EXIT=0
+########## demo_inspect ##########
