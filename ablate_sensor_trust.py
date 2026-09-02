@@ -116,11 +116,15 @@ def main():
             float(a["observed_error_pct"]) - float(b["observed_error_pct"])))
     print("=" * 74)
 
-    import importlib
-    importlib.reload(config)
-    assert config.RECOVERY_SENSOR_TRUST == original, "config default changed"
-    print(f"config.py default verified unchanged: "
-          f"RECOVERY_SENSOR_TRUST = {config.RECOVERY_SENSOR_TRUST}")
+    # Checked against the source rather than by reloading the module, for
+    # the same reason as in sweep_displacement.py.
+    assert config.RECOVERY_SENSOR_TRUST == original, "trust left modified"
+    source = open("config.py", encoding="utf-8", errors="replace").read()
+    assert f"RECOVERY_SENSOR_TRUST = {original}" in source, (
+        "config.py no longer declares the original RECOVERY_SENSOR_TRUST -- "
+        "this script recommends, it does not decide")
+    print(f"config.py default verified unchanged on disk: "
+          f"RECOVERY_SENSOR_TRUST = {original}")
 
 
 if __name__ == "__main__":

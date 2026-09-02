@@ -1,0 +1,10 @@
+TRIPLE-OVERLAP SAMPLE AGAINST DISPLACEMENT -- seed 42, C3
+BYZANTINE_MIN_TRIPLE_OVERLAP_CELLS = 10000
+
+    2.0 m :  183 checks | overlap mean    48834  median    61245  max    65567 | cleared the floor  183 (100.0 %) | detected 0
+    6.0 m :  116 checks | overlap mean    39898  median    36371  max    59657 | cleared the floor  116 (100.0 %) | detected 0
+   24.0 m :   72 checks | overlap mean    28454  median    25496  max    37548 | cleared the floor   72 (100.0 %) | detected 0
+
+If the overlap shrinks as displacement grows, the detector is
+losing the evidence it needs at exactly the rate the fault becomes
+more obvious, and that -- not the threshold -- is the limit.

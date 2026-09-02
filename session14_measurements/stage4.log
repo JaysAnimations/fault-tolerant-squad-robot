@@ -1,0 +1,193 @@
+########## 4a DISPLACEMENT ##########
+DISPLACEMENT SENSITIVITY SWEEP -- C3 only, wrong_position seeds
+seeds: [4, 6, 10, 12, 21, 22, 42]  (n=7)
+displacements: [2.0, 4.0, 6.0, 12.0, 24.0] m
+config default, unchanged: FAULT_POSE_OFFSET_M = (6.0, 0.0)
+
+    2.0 m  C3_s4     det 0  lat      -1  truly 34  false  6  Qok 0 Qbad 0  (38s)
+    2.0 m  C3_s6     det 0  lat      -1  truly 34  false  6  Qok 0 Qbad 0  (135s)
+    2.0 m  C3_s10    det 0  lat      -1  truly 31  false  8  Qok 0 Qbad 0  (474s)
+    2.0 m  C3_s12    det 0  lat      -1  truly 33  false  5  Qok 0 Qbad 0  (308s)
+    2.0 m  C3_s21    det 0  lat      -1  truly 29  false  9  Qok 0 Qbad 0  (68s)
+    2.0 m  C3_s22    det 0  lat      -1  truly 30  false 10  Qok 0 Qbad 0  (76s)
+    2.0 m  C3_s42    det 0  lat      -1  truly 37  false  1  Qok 0 Qbad 0  (519s)
+    4.0 m  C3_s4     det 0  lat      -1  truly 32  false  7  Qok 0 Qbad 0  (180s)
+    4.0 m  C3_s6     det 0  lat      -1  truly 32  false  8  Qok 0 Qbad 0  (194s)
+    4.0 m  C3_s10    det 1  lat   452.6  truly 28  false  0  Qok 2 Qbad 0  (953s)
+    4.0 m  C3_s12    det 1  lat   252.3  truly 33  false  2  Qok 2 Qbad 0  (286s)
+    4.0 m  C3_s21    det 0  lat      -1  truly 29  false  9  Qok 0 Qbad 0  (103s)
+    4.0 m  C3_s22    det 0  lat      -1  truly 30  false 10  Qok 0 Qbad 0  (124s)
+    4.0 m  C3_s42    det 0  lat      -1  truly 32  false  7  Qok 0 Qbad 0  (242s)
+    6.0 m  C3_s4     det 0  lat      -1  truly 32  false  6  Qok 0 Qbad 0  (328s)
+    6.0 m  C3_s6     det 0  lat      -1  truly 31  false  8  Qok 0 Qbad 0  (231s)
+    6.0 m  C3_s10    det 1  lat   272.6  truly 26  false 12  Qok 0 Qbad 0  (599s)
+    6.0 m  C3_s12    det 1  lat   242.3  truly 29  false  6  Qok 2 Qbad 0  (432s)
+    6.0 m  C3_s21    det 0  lat      -1  truly 27  false 10  Qok 0 Qbad 0  (337s)
+    6.0 m  C3_s22    det 0  lat      -1  truly 30  false 10  Qok 0 Qbad 0  (93s)
+    6.0 m  C3_s42    det 0  lat      -1  truly 32  false  7  Qok 0 Qbad 0  (305s)
+   12.0 m  C3_s4     det 0  lat      -1  truly 33  false  6  Qok 0 Qbad 0  (498s)
+   12.0 m  C3_s6     det 1  lat   461.3  truly 34  false  6  Qok 0 Qbad 0  (213s)
+   12.0 m  C3_s10    det 1  lat   382.6  truly 19  false  0  Qok 2 Qbad 0  (226s)
+   12.0 m  C3_s12    det 1  lat   382.3  truly 33  false  0  Qok 2 Qbad 0  (346s)
+   12.0 m  C3_s21    det 0  lat      -1  truly 29  false  9  Qok 0 Qbad 0  (161s)
+   12.0 m  C3_s22    det 0  lat      -1  truly 34  false  5  Qok 0 Qbad 0  (72s)
+   12.0 m  C3_s42    det 0  lat      -1  truly 38  false  1  Qok 0 Qbad 0  (79s)
+   24.0 m  C3_s4     det 0  lat      -1  truly 33  false  7  Qok 0 Qbad 0  (47s)
+   24.0 m  C3_s6     det 0  lat      -1  truly 32  false  5  Qok 0 Qbad 0  (130s)
+   24.0 m  C3_s10    det 1  lat   662.6  truly 33  false  5  Qok 0 Qbad 0  (617s)
+   24.0 m  C3_s12    det 1  lat   252.3  truly 40  false  0  Qok 2 Qbad 0  (202s)
+   24.0 m  C3_s21    det 0  lat      -1  truly 29  false  9  Qok 0 Qbad 0  (98s)
+   24.0 m  C3_s22    det 1  lat   394.8  truly 40  false  0  Qok 0 Qbad 0  (75s)
+   24.0 m  C3_s42    det 0  lat      -1  truly 30  false 10  Qok 0 Qbad 0  (134s)
+
+completed in 148.7 min
+
+======================================================================================
+DETECTION AGAINST DISPLACEMENT -- C3, n=7 seeds each
+ offset m   detected  mean lat s   false Q correct Q      truly    falsely
+--------------------------------------------------------------------------------------
+      2.0      0/7             -      0.00      0.00      32.57       6.43
+      4.0      2/7         352.5      0.00      0.57      30.86       6.14
+      6.0      2/7         257.5      0.00      0.29      29.57       8.43
+     12.0      3/7         408.7      0.00      0.57      31.43       3.86
+     24.0      3/7         436.6      0.00      0.29      33.86       5.14
+
+HEALTHY ODOMETRY DRIFT (C1, from traces_v1, 87 robot-missions)
+  mean final pose error : 0.18 m
+  median                : 0.13 m
+  90th percentile       : 0.40 m
+  worst                 : 0.90 m
+  mean PEAK during a mission : 0.22 m
+  worst peak                 : 0.97 m
+
+======================================================================================
+READ THE KNEE AGAINST THE DRIFT. A displacement comparable to
+the squad's own positional uncertainty is not separable by map
+comparison, because the detector's whole signal is that one
+robot disagrees with the others more than they disagree with
+each other.
+======================================================================================
+
+config.py default verified unchanged on disk: FAULT_POSE_OFFSET_M = (6.0, 0.0)
+EXIT_4A=0
+########## 4c SENSOR TRUST ##########
+SENSOR TRUST ABLATION -- C3, sensor_degradation seeds
+  seeds  : [3, 19, 28, 2024]  (n=4)
+  trusts : [0.25, 1.0]   (config default 0.25)
+
+  trust 0.25  C3_s3     F1 0.6965  cov  99.44  err  0.748  truly 40 (64s)
+  trust 0.25  C3_s19    F1 0.6775  cov  99.19  err  1.365  truly 40 (149s)
+  trust 0.25  C3_s28    F1 0.7116  cov  99.32  err  0.971  truly 40 (39s)
+  trust 0.25  C3_s2024  F1 0.6968  cov  99.09  err  1.254  truly 38 (242s)
+  trust 1.0   C3_s3     F1 0.6904  cov  99.45  err  0.841  truly 40 (61s)
+  trust 1.0   C3_s19    F1 0.6705  cov  99.17  err  1.485  truly 40 (140s)
+  trust 1.0   C3_s28    F1 0.7116  cov  99.32  err  0.971  truly 40 (47s)
+  trust 1.0   C3_s2024  F1 0.6892  cov  99.13  err  1.371  truly 38 (429s)
+
+completed in 19.5 min
+
+==========================================================================
+MEANS OVER 4 sensor_degradation SEEDS
+         trust surface F1     cov %   obs err %     truly
+--------------------------------------------------------------------------
+0.25 (default)    0.6956     99.26       1.085     39.50
+ 1.0 (ablated)    0.6904     99.27       1.167     39.50
+
+PAIRED PER SEED (0.25 minus 1.0)
+  seed 3     dF1 +0.0061  dcov  -0.01  derr  -0.093
+  seed 19    dF1 +0.0070  dcov  +0.02  derr  -0.120
+  seed 28    dF1 +0.0000  dcov  +0.00  derr  +0.000
+  seed 2024  dF1 +0.0076  dcov  -0.04  derr  -0.117
+==========================================================================
+config.py default verified unchanged on disk: RECOVERY_SENSOR_TRUST = 0.25
+EXIT_4C=0
+########## 4d TWO FAULTS ##########
+TWO CONCURRENT FAULTS -- C3 only, 10 seeds
+robot 1: the seed's own fault (as in the suite)
+robot 2: a second, different fault drawn from the seed
+robot 0: healthy
+
+  C3_s1     r1=immobilised         r2=battery_drain       truly 40  succ 1  Qok 0 Qbad 0  (217s)
+  C3_s2     r1=battery_drain       r2=sensor_degradation  truly 40  succ 1  Qok 0 Qbad 0  (152s)
+  C3_s3     r1=sensor_degradation  r2=immobilised         truly 39  succ 0  Qok 0 Qbad 0  (67s)
+  C3_s4     r1=wrong_position      r2=comms_loss          truly 36  succ 1  Qok 0 Qbad 0  (659s)
+  C3_s5     r1=immobilised         r2=battery_drain       truly 37  succ 0  Qok 0 Qbad 0  (51s)
+  C3_s6     r1=wrong_position      r2=comms_loss          truly 30  succ 1  Qok 0 Qbad 0  (44s)
+  C3_s7     r1=comms_loss          r2=wrong_position      truly 40  succ 1  Qok 0 Qbad 0  (80s)
+  C3_s8     r1=immobilised         r2=sensor_degradation  truly 39  succ 1  Qok 0 Qbad 0  (294s)
+  C3_s9     r1=battery_drain       r2=sensor_degradation  truly 39  succ 0  Qok 0 Qbad 0  (40s)
+  C3_s10    r1=wrong_position      r2=battery_drain       truly 29  succ 1  Qok 0 Qbad 0  (61s)
+
+completed in 27.8 min
+
+============================================================================
+TWO FAULTS AT ONCE -- means over 10 seeds
+  truly inspected      : 36.90 / 40.00
+  falsely reported     : 2.40
+  missions succeeded   : 7 / 10
+  detected (robot 1)   : 8 / 10
+  correct quarantines  : 0
+  WRONG quarantines    : 0
+  energy per point     : 207.2 J
+
+Compare against the single-fault C3 rows in results.csv.
+A rise in WRONG quarantines is the dangerous outcome: it would
+mean two faulty robots corroborating each other against the one
+healthy robot still telling the truth.
+============================================================================
+EXIT_4D=0
+########## 4b BYZANTINE ROC ##########
+BYZANTINE THRESHOLD ROC
+  ratios run  : [1.15, 2.0]
+  ratio 1.4 read from results.csv (config default, already measured by the suite)
+  C3 faulty   : [4, 6, 10, 12, 21, 22, 42]
+  C1 healthy  : [1, 2, 3, 4, 5, 6, 7, 8]
+  30 runs
+
+  ratio 1.15  C3_s4     det  0  Qok 0 Qbad 0  fp 0  truly 32 (227s)
+  ratio 1.15  C3_s6     det  0  Qok 0 Qbad 0  fp 0  truly 31 (167s)
+  ratio 1.15  C3_s10    det  1  Qok 0 Qbad 0  fp 2  truly 26 (235s)
+  ratio 1.15  C3_s12    det  1  Qok 2 Qbad 0  fp 0  truly 29 (241s)
+  ratio 1.15  C3_s21    det  0  Qok 0 Qbad 0  fp 1  truly 27 (172s)
+  ratio 1.15  C3_s22    det  0  Qok 0 Qbad 0  fp 1  truly 30 (49s)
+  ratio 1.15  C3_s42    det  0  Qok 0 Qbad 0  fp 0  truly 32 (172s)
+  ratio 1.15  C1_s1     det -1  Qok 0 Qbad 0  fp 0  truly 40 (72s)
+  ratio 1.15  C1_s2     det -1  Qok 0 Qbad 0  fp 0  truly 40 (185s)
+  ratio 1.15  C1_s3     det -1  Qok 0 Qbad 0  fp 0  truly 40 (52s)
+  ratio 1.15  C1_s4     det -1  Qok 0 Qbad 0  fp 0  truly 39 (186s)
+  ratio 1.15  C1_s5     det -1  Qok 0 Qbad 0  fp 0  truly 36 (75s)
+  ratio 1.15  C1_s6     det -1  Qok 0 Qbad 0  fp 0  truly 40 (136s)
+  ratio 1.15  C1_s7     det -1  Qok 0 Qbad 0  fp 0  truly 40 (27s)
+  ratio 1.15  C1_s8     det -1  Qok 0 Qbad 0  fp 0  truly 39 (166s)
+  ratio 2.0   C3_s4     det  0  Qok 0 Qbad 0  fp 0  truly 32 (243s)
+  ratio 2.0   C3_s6     det  0  Qok 0 Qbad 0  fp 0  truly 31 (169s)
+  ratio 2.0   C3_s10    det  0  Qok 0 Qbad 0  fp 0  truly 29 (60s)
+  ratio 2.0   C3_s12    det  1  Qok 2 Qbad 0  fp 0  truly 29 (252s)
+  ratio 2.0   C3_s21    det  0  Qok 0 Qbad 0  fp 1  truly 27 (173s)
+  ratio 2.0   C3_s22    det  0  Qok 0 Qbad 0  fp 1  truly 30 (52s)
+  ratio 2.0   C3_s42    det  0  Qok 0 Qbad 0  fp 0  truly 32 (171s)
+  ratio 2.0   C1_s1     det -1  Qok 0 Qbad 0  fp 0  truly 40 (74s)
+  ratio 2.0   C1_s2     det -1  Qok 0 Qbad 0  fp 0  truly 40 (184s)
+  ratio 2.0   C1_s3     det -1  Qok 0 Qbad 0  fp 0  truly 40 (50s)
+  ratio 2.0   C1_s4     det -1  Qok 0 Qbad 0  fp 0  truly 39 (185s)
+  ratio 2.0   C1_s5     det -1  Qok 0 Qbad 0  fp 0  truly 36 (74s)
+  ratio 2.0   C1_s6     det -1  Qok 0 Qbad 0  fp 0  truly 40 (143s)
+  ratio 2.0   C1_s7     det -1  Qok 0 Qbad 0  fp 0  truly 40 (31s)
+  ratio 2.0   C1_s8     det -1  Qok 0 Qbad 0  fp 0  truly 39 (191s)
+
+completed in 70.2 min
+
+========================================================================================
+ROC -- detection against false quarantine
+  ratio | C3 wrong_position (n=7)      | C1 healthy (n=8)                  
+        |  detected correct Q   truly |   false Q runs with Q  believed
+----------------------------------------------------------------------------------------
+   1.15 |      2/7           2   29.57 |         0        0/8       39.25
+   1.40 |      2/7           2   29.57 |         0        0/8       39.25  <-- current default, from the suite
+   2.00 |      1/7           2   30.00 |         0        0/8       39.25
+
+Lower ratio = quicker to convict. The question is whether any
+row buys detection on the left without paying for it on the right.
+========================================================================================
+config.py default verified unchanged on disk: BYZANTINE_RATIO = 1.4
+EXIT_4B=0

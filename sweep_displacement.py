@@ -189,13 +189,19 @@ def main():
     print("each other.")
     print("=" * 86)
 
+    # THE PROHIBITION, CHECKED RATHER THAN PROMISED. The in-process value
+    # is restored above; this confirms the FILE on disk still declares 6 m,
+    # which is the thing Session 8 forbade changing. Checked by reading the
+    # source rather than by reloading the module: a reload re-executes
+    # config.py under every other module that already holds a reference to
+    # it, which is a lot of risk for an assertion.
     assert config.FAULT_POSE_OFFSET_M == original, "offset left modified"
-    import importlib
-    importlib.reload(config)
-    assert config.FAULT_POSE_OFFSET_M == (6.0, 0.0), (
-        "config.py default was changed -- it must stay at 6 m")
-    print("\nconfig.py default verified unchanged: FAULT_POSE_OFFSET_M ="
-          f" {config.FAULT_POSE_OFFSET_M}")
+    source = open("config.py", encoding="utf-8", errors="replace").read()
+    assert "FAULT_POSE_OFFSET_M = (6.0, 0.0)" in source, (
+        "config.py no longer declares FAULT_POSE_OFFSET_M = (6.0, 0.0) -- "
+        "the default must stay at 6 m whatever this sweep shows")
+    print("\nconfig.py default verified unchanged on disk: "
+          "FAULT_POSE_OFFSET_M = (6.0, 0.0)")
 
 
 if __name__ == "__main__":

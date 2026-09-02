@@ -34,14 +34,26 @@ import config
 import run_experiments as rx
 from faults import schedule_for_seed
 
-# Spanning the current value rather than centred on it: 1.05 is nearly "any
-# disagreement convicts", 2.5 is "only a gross outlier convicts".
-RATIOS = [1.1, 1.2, 1.4, 1.8, 2.5]
+# SCOPE REDUCED IN SESSION 14, DELIBERATELY AND ON THE RECORD. The
+# intended sweep was five ratios over seventeen seeds -- 85 runs. Wall
+# times on this machine degraded roughly tenfold mid-session under CPU
+# contention (one 584 s mission took 7142 s of wall clock), so the grid was
+# cut rather than the session left unfinished. Three points is a thin curve
+# and is reported as such; it is still three more than the zero points the
+# current operating point was chosen from.
+#
+# 1.15 is close to "any disagreement convicts"; 2.0 is "only a gross
+# outlier convicts". 1.4 is the current default and IS NOT RUN HERE -- the
+# suite already measured it, so those rows are read from results.csv
+# instead of being paid for twice.
+RATIOS_TO_RUN = [1.15, 2.0]
+DEFAULT_RATIO_FROM_SUITE = 1.4
 
-# Ten healthy seeds, matching the size of the Session 11/13 false-positive
-# gate. The full 29 would triple the cost of the sweep for a third-decimal
-# improvement in a rate that is already near zero.
-N_HEALTHY = 10
+# Eight healthy seeds. The Session 11/13 false-positive gate used ten; the
+# full 29 would treble the cost for a third-decimal change in a rate
+# already near zero.
+N_HEALTHY = 8
+SUITE = "results.csv"
 OUT = "sweep_byzantine_roc.csv"
 
 
@@ -62,10 +74,12 @@ def main():
     healthy = healthy_seeds(N_HEALTHY)
 
     print("BYZANTINE THRESHOLD ROC")
-    print(f"  ratios      : {RATIOS}   (config default {original})")
+    print(f"  ratios run  : {RATIOS_TO_RUN}")
+    print(f"  ratio {DEFAULT_RATIO_FROM_SUITE} read from {SUITE} "
+          f"(config default, already measured by the suite)")
     print(f"  C3 faulty   : {faulty}")
     print(f"  C1 healthy  : {healthy}")
-    print(f"  {len(RATIOS) * (len(faulty) + len(healthy))} runs\n")
+    print(f"  {len(RATIOS_TO_RUN) * (len(faulty) + len(healthy))} runs\n")
 
     existing = set()
     if os.path.exists(OUT) and os.path.getsize(OUT) > 0:
@@ -83,7 +97,7 @@ def main():
         fh.flush()
 
     started = time.time()
-    for ratio in RATIOS:
+    for ratio in RATIOS_TO_RUN:
         config.BYZANTINE_RATIO = ratio
         for condition, seeds in (("C3", faulty), ("C1", healthy)):
             for seed in seeds:
@@ -107,6 +121,22 @@ def main():
     with open(OUT, newline="") as f:
         rows = list(csv.DictReader(f))
 
+    # The default-ratio point comes from the suite rather than from a
+    # repeat run. Restricted to the SAME seeds as the swept arms, so the
+    # three points on the curve are comparable rather than nearly so.
+    if os.path.exists(SUITE):
+        with open(SUITE, newline="") as f:
+            for r in csv.DictReader(f):
+                seed = int(r["seed"])
+                if ((r["condition"] == "C3" and seed in faulty)
+                        or (r["condition"] == "C1" and seed in healthy)):
+                    r["byzantine_ratio"] = DEFAULT_RATIO_FROM_SUITE
+                    rows.append(r)
+    else:
+        print(f"  (note: {SUITE} absent, default-ratio point not shown)")
+
+    all_ratios = sorted({float(r["byzantine_ratio"]) for r in rows})
+
     print(f"\ncompleted in {(time.time() - started) / 60:.1f} min")
     print("\n" + "=" * 88)
     print("ROC -- detection against false quarantine")
@@ -115,7 +145,7 @@ def main():
     print("%7s | %9s %9s %7s | %9s %11s %9s" %
           ("", "detected", "correct Q", "truly", "false Q", "runs with Q", "believed"))
     print("-" * 88)
-    for ratio in RATIOS:
+    for ratio in all_ratios:
         f3 = [r for r in rows
               if float(r["byzantine_ratio"]) == ratio and r["condition"] == "C3"]
         f1 = [r for r in rows
@@ -128,7 +158,8 @@ def main():
         qbad = sum(int(r["quarantines_wrong"]) for r in f1)
         runs_with = sum(int(r["quarantines_wrong"]) > 0 for r in f1)
         believed = np.mean([float(r["points_believed_visited"]) for r in f1])
-        mark = "  <-- current default" if ratio == original else ""
+        mark = ("  <-- current default, from the suite"
+                if ratio == DEFAULT_RATIO_FROM_SUITE else "")
         print("%7.2f | %6d/%-3d %9d %7.2f | %9d %8d/%-3d %9.2f%s" %
               (ratio, det, len(f3), qok, truly,
                qbad, runs_with, len(f1), believed, mark))
@@ -137,11 +168,15 @@ def main():
     print("row buys detection on the left without paying for it on the right.")
     print("=" * 88)
 
-    import importlib
-    importlib.reload(config)
-    assert config.BYZANTINE_RATIO == original, "config default was changed"
-    print(f"config.py default verified unchanged: "
-          f"BYZANTINE_RATIO = {config.BYZANTINE_RATIO}")
+    # Checked against the source rather than by reloading the module, for
+    # the same reason as in sweep_displacement.py.
+    assert config.BYZANTINE_RATIO == original, "ratio left modified"
+    source = open("config.py", encoding="utf-8", errors="replace").read()
+    assert f"BYZANTINE_RATIO = {original}" in source, (
+        "config.py no longer declares the original BYZANTINE_RATIO -- this "
+        "script reports an operating point, it does not choose one")
+    print(f"config.py default verified unchanged on disk: "
+          f"BYZANTINE_RATIO = {original}")
 
 
 if __name__ == "__main__":
