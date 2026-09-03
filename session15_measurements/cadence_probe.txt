@@ -1,0 +1,94 @@
+
+STAGE B -- the cadence probe
+config.py SHA-256 before : e657320ded39160effef5a4c7f01bddc9a2ff2eabf7d1ac52d5f768827c87f93
+BYZANTINE_CHECK_EVERY_N_STEPS on disk = 100
+E_COMMS_J_PER_KB = 0.0057344 (results.csv was produced at 0.05)
+
+B1 -- C3 on the 7 wrong_position seeds (4, 6, 10, 12, 21, 22, 42)
+
+  cadence 100:
+    C3_s4     cadence 100  detected  0  lat     -1  Qok 0  Qbad 0  truly 32  falsely  6  (184s)
+    C3_s6     cadence 100  detected  0  lat     -1  Qok 0  Qbad 0  truly 31  falsely  8  (126s)
+    C3_s10    cadence 100  detected  1  lat  272.6  Qok 0  Qbad 0  truly 26  falsely 12  (266s)
+    C3_s12    cadence 100  detected  1  lat  242.3  Qok 2  Qbad 0  truly 29  falsely  6  (186s)
+    C3_s21    cadence 100  detected  0  lat     -1  Qok 0  Qbad 0  truly 27  falsely 10  (137s)
+    C3_s22    cadence 100  detected  0  lat     -1  Qok 0  Qbad 0  truly 30  falsely 10  (38s)
+    C3_s42    cadence 100  detected  0  lat     -1  Qok 0  Qbad 0  truly 32  falsely  7  (121s)
+
+  cadence 50:
+    C3_s4     cadence  50  detected  0  lat     -1  Qok 0  Qbad 0  truly 32  falsely  6  (174s)
+    C3_s6     cadence  50  detected  0  lat     -1  Qok 0  Qbad 0  truly 31  falsely  8  (123s)
+    C3_s10    cadence  50  detected  1  lat  217.6  Qok 0  Qbad 0  truly 27  falsely 12  (188s)
+    C3_s12    cadence  50  detected  1  lat  222.3  Qok 2  Qbad 0  truly 29  falsely  6  (199s)
+    C3_s21    cadence  50  detected  0  lat     -1  Qok 0  Qbad 0  truly 27  falsely 10  (140s)
+    C3_s22    cadence  50  detected  0  lat     -1  Qok 0  Qbad 0  truly 30  falsely 10  (39s)
+    C3_s42    cadence  50  detected  0  lat     -1  Qok 0  Qbad 0  truly 32  falsely  7  (127s)
+
+B2 -- C1 false-positive gate, 10 seeds (1, 2, 3, 4, 5, 7, 11, 13, 42, 2024)
+
+  cadence 100:
+    C1_s1     cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (54s)
+    C1_s2     cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (137s)
+    C1_s3     cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (38s)
+    C1_s4     cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 39  falsely  0  (137s)
+    C1_s5     cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 36  falsely  0  (55s)
+    C1_s7     cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (24s)
+    C1_s11    cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 39  falsely  0  (484s)
+    C1_s13    cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (92s)
+    C1_s42    cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (97s)
+    C1_s2024  cadence 100  detected -1  lat     -1  Qok 0  Qbad 0  truly 38  falsely  0  (202s)
+
+  cadence 50:
+    C1_s1     cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (56s)
+    C1_s2     cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (138s)
+    C1_s3     cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (41s)
+    C1_s4     cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 39  falsely  0  (136s)
+    C1_s5     cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 36  falsely  0  (56s)
+    C1_s7     cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (24s)
+    C1_s11    cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 39  falsely  0  (489s)
+    C1_s13    cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (92s)
+    C1_s42    cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 40  falsely  0  (99s)
+    C1_s2024  cadence  50  detected -1  lat     -1  Qok 0  Qbad 0  truly 38  falsely  0  (204s)
+
+==============================================================================
+B1 -- DETECTION, C3, wrong_position seeds, n = 7
+==============================================================================
+  arm                                    det   rate    lat s  Qok  Qbad   truly  falsely  wall s
+  results.csv (cad 100, old comms)      2/7    29 %    257.5    2     0   29.57     8.43      --
+  re-run cadence 100                    2/7    29 %    257.5    2     0   29.57     8.43     151
+  re-run cadence 50                     2/7    29 %    219.9    2     0   29.71     8.43     142
+
+  per seed:    seed   cad100 det/lat    cad50 det/lat   truly 100->50   falsely 100->50
+                  4        0/-1             0/-1           32 ->  32         6 ->   6
+                  6        0/-1             0/-1           31 ->  31         8 ->   8
+                 10        1/272.6          1/217.6        26 ->  27        12 ->  12
+                 12        1/242.3          1/222.3        29 ->  29         6 ->   6
+                 21        0/-1             0/-1           27 ->  27        10 ->  10
+                 22        0/-1             0/-1           30 ->  30        10 ->  10
+                 42        0/-1             0/-1           32 ->  32         7 ->   7
+
+------------------------------------------------------------------------------
+Is the cadence-100 re-run identical to results.csv? (i.e. did the
+new E_COMMS_J_PER_KB change any behaviour on these seeds?)
+  NO behavioural column moved on any of the seven seeds.
+  The comms coefficient is pure accounting here, so the
+  cadence-100 arm and results.csv are the same experiment.
+
+==============================================================================
+B2 -- THE FALSE-POSITIVE GATE, C1, healthy squad with deviations, n = 10
+==============================================================================
+  arm                                 false Q runs  false Q  accusations  invalidated  believed   truly
+  results.csv (cad 100, old comms)           0/10         0            0            0       392     392
+  re-run cadence 100                         0/10         0            0            0       392     392
+  re-run cadence 50                          0/10         0            0            0       392     392
+
+  FALSE-QUARANTINE RATE AT CADENCE 50: 0 % (0/10 runs)
+  The gate holds at zero. The cadence change is not a trade.
+
+==============================================================================
+config.py SHA-256 after  : e657320ded39160effef5a4c7f01bddc9a2ff2eabf7d1ac52d5f768827c87f93
+  unchanged on disk           : True
+  still reads '= 100' on disk : True
+  live value back at default  : True
+
+Every row written to C:\Users\user\Desktop\Final Year Project\Dummy Simulation_Modified\session15_measurements\cadence_probe.csv

@@ -147,12 +147,63 @@ assert abs(E_TURN_J_PER_RAD - 2.00) < 1e-9, E_TURN_J_PER_RAD
 assert abs(P_COMPUTE_W - 0.60) < 1e-9, P_COMPUTE_W
 assert abs(P_SENSE_W - 2.00) < 1e-9, P_SENSE_W
 
-# NOT derived and still a placeholder, said plainly rather than left to be
-# assumed: no datasheet figure was available for per-kilobyte radio energy,
-# and it is not worth inventing one. It contributes a negligible fraction
-# of a mission (see the energy_comms_j column in results.csv), so leaving
-# it alone does not affect any conclusion.
-E_COMMS_J_PER_KB = 0.05      # joules per kilobyte transmitted -- PLACEHOLDER
+# --- the fifth coefficient, derived in Session 15 from radio airtime -----
+# WAS 0.05 AND WAS THE LAST INVENTED NUMBER IN THE ENERGY MODEL. CHANGED,
+# and flagged per the convention. Session 14 left it as a placeholder
+# because no datasheet gives joules per kilobyte directly. Nothing does --
+# but the two figures that determine it are both in the SAME row of the
+# SAME ESP32 table already quoted for P_COMPUTE_W, so no new part and no
+# new datasheet is needed. Energy per kilobyte is transmit power times the
+# time it takes to put a kilobyte on the air.
+#
+# ESP32 datasheet v5.3, Table 5-4, 3.3 V at 25 C:
+#     Transmit 802.11b, DSSS 1 Mbps, POUT = +19.5 dBm ...... 240 mA
+#     Receive  802.11b/g/n ................................. 95~100 mA
+# The 1 Mbps DSSS rate is named in the transmit row itself, so the bit rate
+# and the current come from the same measurement and cannot be mismatched.
+# It is also the rate ESP-NOW uses, which is the protocol HARDWARE_SPEC.md
+# specifies for the demonstrator.
+ESP32_TX_CURRENT_A      = 0.240   # Table 5-4, transmit 802.11b DSSS 1 Mbps
+ESP32_RX_CURRENT_A      = 0.100   # Table 5-4, receive, top of the 95~100 mA band
+RADIO_BITRATE_BPS       = 1.0e6   # the DSSS 1 Mbps named in that same row
+BYTES_PER_KB            = 1024    # payload sizes above are binary kilobytes
+
+# CHARGE THE INCREMENT OVER RECEIVE, NOT THE WHOLE TRANSMIT CURRENT. The
+# radio's 100 mA receive draw is ALREADY inside MCU_ACTIVE_CURRENT_A above
+# ("100 mA chip receive + board overhead") and is billed continuously to
+# the compute category for every second the robot is switched on. Billing
+# the full 240 mA here as well would charge the listening baseline twice
+# over for the duration of every transmission. What the radio actually
+# costs extra when it talks is the difference.
+RADIO_TX_EXCESS_CURRENT_A = ESP32_TX_CURRENT_A - ESP32_RX_CURRENT_A   # 0.140 A
+RADIO_AIRTIME_S_PER_KB    = BYTES_PER_KB * 8 / RADIO_BITRATE_BPS      # 8.192 ms
+
+# BILLED AT THE 5 V RAIL, for the same reason P_COMPUTE_W is. The extra
+# current is drawn at the chip's 3.3 V rail, but it arrives through the
+# DevKit's AMS1117, which is a LINEAR regulator -- it passes the current
+# straight through and burns the voltage difference as heat, so the battery
+# supplies that 140 mA at 5 V, not at 3.3 V. Using MCU_SUPPLY_V rather than
+# restating 5.0 keeps this tied to the coefficient it must stay consistent
+# with.
+E_COMMS_J_PER_KB = (MCU_SUPPLY_V * RADIO_TX_EXCESS_CURRENT_A
+                    * RADIO_AIRTIME_S_PER_KB)     # 5.0 * 0.140 * 0.008192
+
+assert abs(E_COMMS_J_PER_KB - 0.0057344) < 1e-9, E_COMMS_J_PER_KB
+
+# TWO CAVEATS, STATED RATHER THAN CORRECTED, because correcting either one
+# would mean inventing a number the datasheet does not give. Both push the
+# same way -- the figure above is a floor, not a best estimate:
+#
+#  1. Section 5.4 says "all transmitters' measurements are based on a 50 %
+#     duty cycle", so 240 mA is an average over a half-on transmitter
+#     rather than a continuous-transmit current. Taken at face value here.
+#  2. The airtime counts PAYLOAD ONLY. A real 802.11b frame also carries a
+#     PHY preamble and MAC headers, so true airtime per kilobyte is higher.
+#
+# Even the most pessimistic reading of the same table -- charge the full
+# 240 mA and double-count receive -- gives 5.0 * 0.240 * 0.008192 =
+# 0.0098 J/kB, still five times BELOW the old 0.05 placeholder. The
+# placeholder cannot be rescued by either caveat; it was simply too big.
 
 BATTERY_CAPACITY_J = 33000.0 # ~2x 18650 cells at 3.7V 2500mAh. A robot that
                              # exhausts this is dead for the rest of the mission.

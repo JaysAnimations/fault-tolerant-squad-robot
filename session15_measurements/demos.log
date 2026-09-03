@@ -1,0 +1,239 @@
+########## demo_single ##########
+Tour complete at step 14992 (t = 1499 s), 0 waypoint(s) skipped
+
+==========================================================
+  SINGLE-ROBOT MAPPING RESULT
+==========================================================
+  Coverage of free space     :  98.50 %
+  Surface precision          :  0.998
+  Surface recall             :  0.988
+  Surface F1  (map accuracy) :  0.993
+  Strict IoU (no tolerance)  :  0.464
+  Misclassification rate     :   1.24 %
+  Distance travelled         :  863.4 m
+  Collisions                 :     75
+  Final odometry error       :   0.05 m
+----------------------------------------------------------
+  ENERGY BREAKDOWN (joules)
+    drive         3458.0 J   (45.3 %)
+    turn           278.3 J   ( 3.6 %)
+    sense         2998.8 J   (39.3 %)
+    compute        899.5 J   (11.8 %)
+    comms            0.0 J   ( 0.0 %)
+    TOTAL         7634.6 J
+  Battery remaining          :  76.9 %
+----------------------------------------------------------
+  >> ENERGY PER m2 MAPPED    :   1.99 J/m2
+==========================================================
+
+Saved demo_single_result.png
+demo_single EXIT=0  (34s)
+########## demo_explore ##########
+
+============================================================
+  AUTONOMOUS FRONTIER EXPLORATION -- SINGLE ROBOT
+============================================================
+  No route was given to the robot. Every goal below was chosen
+  by the robot from its own map.
+------------------------------------------------------------
+  Frontiers visited          :    163
+  Frontiers abandoned        :      0
+  Coverage of free space     :  96.23 %
+  Surface F1  (map accuracy) :  0.634
+  Distance travelled         : 2277.3 m
+  Collisions                 :      0
+  Final odometry error       :   0.28 m
+  Mission duration           :   4000 s
+------------------------------------------------------------
+    drive         9109.0 J   (44.0 %)
+    turn          1205.5 J   ( 5.8 %)
+    sense         8000.4 J   (38.6 %)
+    compute       2400.0 J   (11.6 %)
+    comms            0.0 J   ( 0.0 %)
+    TOTAL        20715.0 J
+  Battery remaining          :  37.2 %
+------------------------------------------------------------
+  >> ENERGY PER m2 MAPPED    :   5.53 J/m2
+============================================================
+
+Saved demo_explore_result.png
+demo_explore EXIT=0  (118s)
+########## demo_inspect ##########
+Round complete at step 8638 (t = 864 s)
+
+==================================================================
+  INSPECTION ROUND WITH A PRIOR MAP -- SINGLE ROBOT
+==================================================================
+  The robot was issued the documented layout and the list of
+  points. It was NOT told where the deviations are.
+------------------------------------------------------------------
+  Inspection points visited  :  40 / 40 (100.0 %)
+  Cut off by a deviation     :   0
+  Missed but reachable       :   0
+  MISSION SUCCESS            : YES   (all reachable points visited)
+  Ended because              : all points visited or given up on
+------------------------------------------------------------------
+  Per zone : Z1 4/4   Z2 5/5   Z3 3/3   Z4 2/2   Z5 4/4   Z6 2/2   Z7 5/5   Z8 3/3   Z9 4/4   Z10 4/4   Z11 4/4
+------------------------------------------------------------------
+  DEVIATIONS FROM THE DRAWINGS
+  #   type     zone  where                           found      at  overturned
+  0   blocked  Z2    north road behind the store        no      --          0 %
+  1   added    Z9    obstacle at (47, 42) m            YES    540s         81 %
+  2   added    Z3    obstacle at (7, 9) m              YES      5s        100 %
+  3   added    Z3    obstacle at (8, 21) m              no      --          0 %
+  4   blocked  Z6    pipe rack bay at x = 24 m         YES    385s         52 %
+  >> DEVIATION DETECTION RATE : 3 / 5  (60 %)
+       added    2/3 detected, mean time to detect    272 s
+       blocked  1/2 detected, mean time to detect    385 s
+------------------------------------------------------------------
+  Distance travelled         :  488.9 m
+  Collisions                 :      0
+  Final odometry error       :   0.35 m
+  Mean error on arrival      :   0.89 m   (true distance to a point the robot believed it had reached)
+  Mission duration           :    864 s
+------------------------------------------------------------------
+    drive         1955.4 J   (43.1 %)
+    turn           331.8 J   ( 7.3 %)
+    sense         1728.0 J   (38.1 %)
+    compute        518.3 J   (11.4 %)
+    comms            0.0 J   ( 0.0 %)
+    TOTAL         4533.5 J
+  Battery remaining          :  86.3 %
+  Free area observed         :   2914 m2 (75.3 % of the site)
+  >> ENERGY PER POINT VISITED :    113 J
+  >> ENERGY PER m2 OBSERVED   :   1.56 J/m2
+==================================================================
+
+Saved demo_inspect_result.png
+demo_inspect EXIT=0  (20s)
+########## demo_squad ##########
+Round complete at step 4521 (t = 452 s)
+
+======================================================================
+  INSPECTION ROUND -- SQUAD OF 3
+======================================================================
+  Every robot holds its own map. Nothing is shared except by
+  radio, and only inside 35 m.
+----------------------------------------------------------------------
+  Inspection points visited  :  40 / 40 (100.0 %)
+  Cut off by a deviation     :   0
+  Missed but reachable       :   0
+  MISSION SUCCESS            : YES
+  Ended because              : all points visited or given up on
+  Mission duration           :    452 s
+----------------------------------------------------------------------
+  robot   status      points    dist_m   energy_J  batt_%  comms_J
+  0       OK              16     258.4     2367.8    92.8     8.57
+  1       OK               9     246.3     2311.2    93.0     8.56
+  2       OK              15     214.1     2170.8    93.4     8.56
+  TOTAL                   40     718.8     6849.9
+----------------------------------------------------------------------
+  Per zone : Z1 4/4   Z2 5/5   Z3 3/3   Z4 2/2   Z5 4/4   Z6 2/2   Z7 5/5   Z8 3/3   Z9 4/4   Z10 4/4   Z11 4/4
+----------------------------------------------------------------------
+  COORDINATION
+    Messages broadcast       :    533
+    Deliveries               :    745
+    Dropped, out of range    :    281
+    Dropped, interference    :     40
+    Map merges accepted      :    101
+    Ground seen by >1 robot  :   1434 m2 of 3250 m2  (44.1 % duplicated)
+----------------------------------------------------------------------
+  DEVIATIONS FROM THE DRAWINGS
+  0   blocked  Z2    north road behind the store        no      --
+  1   added    Z9    obstacle at (47, 42) m            YES    105s
+  2   added    Z3    obstacle at (7, 9) m              YES      5s
+  3   added    Z3    obstacle at (8, 21) m              no      --
+  4   blocked  Z6    pipe rack bay at x = 24 m         YES     45s
+  >> DEVIATION DETECTION RATE : 3 / 5  (60 %)
+----------------------------------------------------------------------
+  >> ENERGY PER POINT VISITED :    171 J
+  Trajectory samples logged  :    546
+======================================================================
+
+Saved demo_squad_result.png
+Saved squad_trace.npz (546 samples)
+demo_squad EXIT=0  (99s)
+########## demo_faults ##########
+
+==============================================================================
+  STEP 3 -- FIVE FAULTS, ONE MISSION, NO DETECTION
+  seed 42, robot 1 broken at t = 120 s
+==============================================================================
+  fault                 points   dur_s  energy_J  r1 pts  r1 dist  r1 batt  r1 err  disagree   msgs
+------------------------------------------------------------------------------
+  no fault (control)     40/40     452      6850       9    246.3    93.0%   1.08%      2531    745
+  sensor_degradation     40/40     452      6847       9    196.2    93.5%   1.14%      2079    785
+  wrong_position         40/40     448      6778       9    226.6    93.1%   4.01%      1107    747
+  comms_loss             40/40     516      8069       5    296.0    91.9%   1.13%     12325    516
+  immobilised            35/40     591      7513       2     69.9    94.3%   0.58%      1581   1150
+  battery_drain          40/40     452      6464       9    207.7     0.0%   1.02%      2481    686
+------------------------------------------------------------------------------
+  CHANGE AGAINST THE CONTROL
+    sensor_degradation   points  +0   duration      -0 s   energy       -3 J   disagreeing cells    -452
+    wrong_position       points  +0   duration      -4 s   energy      -72 J   disagreeing cells   -1424
+    comms_loss           points  +0   duration     +63 s   energy    +1219 J   disagreeing cells   +9794
+    immobilised          points  -5   duration    +139 s   energy     +663 J   disagreeing cells    -950
+    battery_drain        points  +0   duration      +0 s   energy     -386 J   disagreeing cells     -50
+------------------------------------------------------------------------------
+  Robot 1's final status, per run:
+    no fault (control)   OK
+    sensor_degradation   OK
+    wrong_position       OK
+    comms_loss           offline
+    immobilised          immobile
+    battery_drain        DEAD
+------------------------------------------------------------------------------
+  No robot detected any of this. The squad kept bidding, kept
+  merging the faulty maps, and kept reporting success. Making it
+  notice is Step 4; making it recover is Step 5.
+==============================================================================
+
+Saved demo_faults_result.png
+demo_faults EXIT=0  (507s)
+########## demo_detect ##########
+
+========================================================================================
+  STEP 4 -- DETECTION. Five faults, three seeds, plus controls.
+  Robot 1 broken at t = 120 s. Nothing is recovered.
+========================================================================================
+  seed   fault                 detected   latency   accusers  false pos   points
+----------------------------------------------------------------------------------------
+  42     none (control)               -         -          -          0   40/40 
+  42     sensor_degradation         YES      25 s        0,2          1   40/40 
+  42     wrong_position              no         -          -          0   40/40 
+  42     comms_loss                  no         -          -          0   40/40 
+  42     immobilised                YES      15 s        0,2          0   35/40 
+  42     battery_drain              YES       5 s        0,2          1   40/40 
+  7      none (control)               -         -          -          0   40/40 
+  7      sensor_degradation         YES      25 s        0,2          0   40/40 
+  7      wrong_position              no         -          -          0   40/40 
+  7      comms_loss                  no         -          -          0   40/40 
+  7      immobilised                YES      15 s        0,2          0   40/40 
+  7      battery_drain              YES       5 s        0,2          0   40/40 
+  2024   none (control)               -         -          -          0   38/39 
+  2024   sensor_degradation         YES     125 s        0,2          0   38/39 
+  2024   wrong_position              no         -          -          1   37/39 
+  2024   comms_loss                 YES     828 s          2          1   38/39 
+  2024   immobilised                YES      15 s        0,2          0   36/39 
+  2024   battery_drain              YES       5 s        0,2          1   38/39 
+----------------------------------------------------------------------------------------
+  BY FAULT
+  fault                  detected   mean latency  false positives
+  sensor_degradation   3/3                  58 s                1
+  wrong_position       0/3                     -                1
+  comms_loss           1/3                 828 s                1
+  immobilised          3/3                  15 s                0
+  battery_drain        3/3                   5 s                2
+----------------------------------------------------------------------------------------
+  CONTROL RUNS (nothing broken): 0 false positive(s) across 3 runs
+  Silences excused by the range gate: 792 across the control runs
+========================================================================================
+
+Saved demo_detect_result.png
+demo_detect EXIT=0  (1848s)
+########## demo_recover ##########
+  seed 42    sensor_degradation   C2  40/40     475s  acted 0
+  seed 42    sensor_degradation   C5  40/40     420s  acted 0
+  seed 42    sensor_degradation   C3  40/40     420s  acted 2
+  seed 42    wrong_position       C2  35/40     434s  acted 0
+  seed 42    wrong_position       C5  39/40     490s  acted 0
