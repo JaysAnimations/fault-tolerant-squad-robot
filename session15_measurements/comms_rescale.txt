@@ -1,0 +1,44 @@
+STAGE D -- comms energy rescaled in analysis, 174 runs
+
+  E_COMMS_J_PER_KB  0.0500000  ->  0.0057344 J/kB   (x0.114688, i.e. 1/8.72)
+  Derived from ESP32 Table 5-4 transmit airtime; see config.py.
+
+  COMPOSITION OF A MISSION
+    category              as measured   rescaled
+    energy_drive_j             32.32 %     33.37 %
+    energy_turn_j               6.15 %      6.35 %
+    energy_sense_j             44.60 %     46.05 %
+    energy_compute_j           13.38 %     13.81 %
+    energy_comms_j              3.55 %      0.42 %
+    TOTAL (all runs)         1219992 J   1181674 J
+
+  Total energy across the suite falls 3.14 %. Comms goes from 3.55 % of a mission to 0.42 %.
+
+  HEADLINE COMPARISONS -- do any of them move?
+    comparison                                       n   as measured      rescaled   sign
+    C3 vs C2   energy/point, all faults             29   -106.1 (t-2.31)   -100.0 (t-2.29)   same
+    C5 vs C2   energy/point, all faults             29   -104.0 (t-2.45)    -98.2 (t-2.44)   same
+    C3 vs C4   energy/point, squad vs solo          29   -326.3 (t-2.07)   -308.6 (t-2.07)   same
+    C1 vs C0   total energy, cost of bad drawings   29    207.3 (t+1.41)    199.0 (t+1.40)   same
+    C3 vs C2   energy/point, IMMOBILISED             7   -474.0 (t-4.71)   -449.4 (t-4.70)   same
+    C3 vs C2   energy/point, COMMS LOSS              5     29.8 (t+1.28)     29.6 (t+1.30)   same
+    C3 vs C2   energy/point, BATTERY DRAIN           6    -11.2 (t-0.67)    -10.4 (t-0.64)   same
+    C3 vs C2   energy/point, WRONG POSITION          7     32.8 (t+2.37)     31.9 (t+2.39)   same
+
+  C2 -> C5 -> C3 energy per point
+    as measured : 292.2 / 188.1 / 186.1   monotone: True
+    rescaled    : 280.8 / 182.7 / 180.8   monotone: True
+
+  THE APPROXIMATION, SIZED
+    worst healthy mission, battery used : 34.93 %  ->  33.19 %
+    largest charge freed on any one robot by this rescale: 1.741 % of a battery
+    That is the entire budget the two neglected behavioural
+    paths -- later battery exhaustion, and the predictive
+    battery detector crossing at a different step -- would have
+    to work with. It is not zero, so this is an approximation
+    and is reported as one.
+
+  VERDICT
+    No headline comparison changes sign, and the
+    C2 -> C5 -> C3 ordering holds. Rescaling comms in
+    analysis changes no conclusion in Chapter 4.
